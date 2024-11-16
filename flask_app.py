@@ -17,7 +17,7 @@ app.secret_key = os.urandom(24)
 CLIENT_ID = os.getenv('DISCORD_CLIENT_ID')
 CLIENT_SECRET = os.getenv('DISCORD_CLIENT_SECRET')
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-REDIRECT_URI = 'http://localhost:3000/callback'
+REDIRECT_URI = 'http://localhost:10000/callback'
 
 SCOPE = 'identify email guilds guilds.members.read bot'
 
@@ -68,7 +68,7 @@ def callback():
         return f'Fehler beim Abrufen der Benutzerdaten: {user_data}'
 
 def run_flask():
-    port = int(os.environ.get("PORT", 3000))  # Port 3000 als Standard
+    port = int(os.environ.get("PORT", 10000))  # Port 3000 als Standard
     app.run(host="0.0.0.0", port=port)
 
 # Discord Bot Konfiguration
@@ -76,6 +76,6 @@ intents = discord.Intents.default()
 intents.presences = True
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=3000)
+    app.run(host='0.0.0.0', port=10000)
 
 
