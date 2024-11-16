@@ -21,6 +21,7 @@ import traceback
 import typing
 from discord import Role, Interaction
 from flask_app import keep_alive
+from discord_presence import update_presence
 
 keep_alive()
 
@@ -1659,6 +1660,12 @@ def run_flask():
 # Bot und Flask in separaten Threads ausführen
 def run_discord_bot():
     bot.run(os.getenv("DISCORD_TOKEN"))
+
+@bot.event
+async def on_ready():
+    print(f"Bot {bot.user} ist online.")
+    await update_presence(bot)
+
 
 if __name__ == '__main__':
     # Starte Flask in einem Thread

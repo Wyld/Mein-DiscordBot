@@ -73,25 +73,8 @@ def run_flask():
 # Discord Bot Konfiguration
 intents = discord.Intents.default()
 intents.presences = True
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-async def update_presence():
-    activity = discord.Game(name="Spielt mit Feelings - Competitive")
-    await bot.change_presence(activity=activity)
-
-@bot.event
-async def on_ready():
-    print(f"Bot {bot.user} ist online.")
-    await update_presence()
-
-def run_discord_bot():
-    token = os.getenv("DISCORD_TOKEN")
-    if not token:
-        raise ValueError("Discord-Token ist nicht gesetzt!")
-    bot.run(token)
 
 if __name__ == '__main__':
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.start()
+    # Starte Flask
+    run_flask()
 
-    run_discord_bot()
