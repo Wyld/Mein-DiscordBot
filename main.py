@@ -1658,7 +1658,7 @@ def home():
     return "Bot ist online!"
 
 def run_flask():
-    app.run(port=5000)
+    app.run(port=8080)
 
 # Bot und Flask in separaten Threads ausführen
 def run_discord_bot():
