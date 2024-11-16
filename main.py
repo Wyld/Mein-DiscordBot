@@ -22,6 +22,9 @@ import typing
 from discord import Role, Interaction
 from flask_app import keep_alive
 from discord_presence import update_presence
+from flask import Flask
+import threading
+
 
 keep_alive()
 
