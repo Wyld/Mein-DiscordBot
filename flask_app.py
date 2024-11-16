@@ -76,6 +76,6 @@ intents = discord.Intents.default()
 intents.presences = True
 
 if __name__ == '__main__':
-    # Starte Flask
-    run_flask()
+    app.run(host='0.0.0.0', port=8080)
+
 
