@@ -20,6 +20,9 @@ from discord import Embed
 import traceback
 import typing
 from discord import Role, Interaction
+from flask_app import keep_alive
+
+keep_alive()
 
 # Lade Umgebungsvariablen aus .env-Datei
 load_dotenv()

@@ -19,20 +19,15 @@ CLIENT_SECRET = os.getenv('DISCORD_CLIENT_SECRET')
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 REDIRECT_URI = 'http://localhost:5000/callback'
 
-# Hier werden nur grundlegende Benutzer- und Bot-Scopes verwendet
 SCOPE = 'identify email guilds guilds.members.read bot'
-
-# Debugging: Überprüfung der geladenen Werte
-print("CLIENT_ID:", CLIENT_ID)
-print("CLIENT_SECRET:", CLIENT_SECRET)
-print("DISCORD_TOKEN:", DISCORD_TOKEN)
-
-if not DISCORD_TOKEN:
-    raise ValueError("DISCORD_TOKEN ist nicht gesetzt! Überprüfe deine .env-Datei.")
 
 @app.route('/')
 def index():
     return '<a href="/login">Mit Discord einloggen</a>'
+
+@app.route('/keep_alive')
+def keep_alive():
+    return "Ich bin online!", 200
 
 @app.route('/login')
 def login():
@@ -47,7 +42,6 @@ def callback():
 
     code = request.args.get('code')
 
-    # Token-Anfrage
     token_response = requests.post('https://discord.com/api/oauth2/token', data={
         'client_id': CLIENT_ID,
         'client_secret': CLIENT_SECRET,
@@ -57,10 +51,6 @@ def callback():
         'scope': SCOPE,
     })
 
-    # Drucken der gesamten Antwort für Debugging
-    print(token_response.text)
-
-    # Token-Fehlerbehandlung
     if token_response.status_code != 200:
         return f'Fehler beim Abrufen des Access Tokens: {token_response.json()}'
 
@@ -78,7 +68,7 @@ def callback():
         return f'Fehler beim Abrufen der Benutzerdaten: {user_data}'
 
 def run_flask():
-    app.run(port=5000)
+    app.run(host='0.0.0.0', port=8080)
 
 # Discord Bot Konfiguration
 intents = discord.Intents.default()
@@ -101,9 +91,7 @@ def run_discord_bot():
     bot.run(token)
 
 if __name__ == '__main__':
-    # Starte Flask in einem separaten Thread
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.start()
 
-    # Starte den Discord-Bot im Hauptthread
     run_discord_bot()
