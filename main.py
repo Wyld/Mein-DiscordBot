@@ -1638,6 +1638,32 @@ async def on_ready():
     except Exception as e:
         print(f"Fehler beim Synchronisieren der Slash-Commands: {e}")
 
-# Bot starten
+@bot.event
+async def on_ready():
+    print(f'{bot.user} ist online und bereit!')
+
+@bot.command()
+async def ping(ctx):
+    await ctx.send('Pong!')
+
+# Flask Setup
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot ist online!"
+
+def run_flask():
+    app.run(port=5000)
+
+# Bot und Flask in separaten Threads ausführen
+def run_discord_bot():
+    bot.run(os.getenv("DISCORD_TOKEN"))
+
 if __name__ == '__main__':
-    bot.run(DISCORD_TOKEN)
+    # Starte Flask in einem Thread
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.start()
+
+    # Starte den Discord Bot
+    run_discord_bot()
