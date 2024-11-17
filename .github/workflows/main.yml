@@ -1,9 +1,9 @@
-name: Run Discord Bot
+name: Restart Discord Bot
 
 on:
-  push:
-    branches:
-      - main
+  schedule:
+    - cron: '0 */6 * * *'  # Alle 6 Stunden
+  workflow_dispatch:  # Ermöglicht manuellen Start
 
 jobs:
   run-bot:
