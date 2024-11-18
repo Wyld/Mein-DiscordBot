@@ -275,6 +275,27 @@ async def account(interaction: discord.Interaction, account_name: str) -> None:
         f"💰 Kontostand von '{account_name}': {balance}€", view=view
     )
 
+WAREHOUSES_FILE = "warehouses.json"
+
+def load_warehouses() -> Dict[str, Dict[str, int]]:
+    """Lädt die Lagerdaten aus der JSON-Datei."""
+    try:
+        with open(WAREHOUSES_FILE, "r") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return {}  # Falls die Datei nicht existiert, zurückgeben, dass keine Daten vorhanden sind
+    except json.JSONDecodeError:
+        print("⚠️ Fehler beim Laden der Lagerdaten. Datei ist beschädigt.")
+        return {}
+
+def save_warehouses() -> None:
+    """Speichert die Lagerdaten in einer JSON-Datei."""
+    with open(WAREHOUSES_FILE, "w") as file:
+        json.dump(warehouses, file, indent=4)
+
+warehouses = load_warehouses()  # Lädt die Daten beim Bot-Start
+
+
 def get_warehouse_content(warehouse_name: str) -> str:
     """Retrieve the contents of the specified warehouse."""
     warehouse = warehouses.get(warehouse_name, {})
@@ -319,8 +340,10 @@ class WarehouseView(discord.ui.View):
 
     async def clear_warehouse(self, interaction: discord.Interaction) -> None:
         warehouses[self.warehouse_name] = {}
+        save_warehouses()  # Speichern nach dem Leeren des Lagers
         await interaction.response.send_message(f"🗑️ Das Lager '{self.warehouse_name}' wurde geleert.")
         await interaction.message.edit(content="📦 Das Lager ist leer.", view=self)  # Update the message
+
 
 class ItemModal(discord.ui.Modal):
     """Modal for adding/removing items in the warehouse."""
@@ -338,14 +361,18 @@ class ItemModal(discord.ui.Modal):
         try:
             quantity = int(self.quantity_input.value)
             if quantity <= 0:
-                await interaction.response.send_message("⚠️ Bitte geben Sie eine Menge größer als 0 ein.", ephemeral=True)
+                await interaction.response.send_message("⚠️ Bitte geben Sie eine Menge größer als 0 ein.",
+                                                        ephemeral=True)
                 return
 
             if self.title == "Item hinzufügen":
                 if self.warehouse_name not in warehouses:
                     warehouses[self.warehouse_name] = {}
-                warehouses[self.warehouse_name][item_name] = warehouses[self.warehouse_name].get(item_name, 0) + quantity
-                await interaction.response.send_message(f"✅ {quantity}x '{item_name}' zum Lager '{self.warehouse_name}' hinzugefügt.")
+                warehouses[self.warehouse_name][item_name] = warehouses[self.warehouse_name].get(item_name,
+                                                                                                 0) + quantity
+                save_warehouses()  # Speichern nach der Änderung
+                await interaction.response.send_message(
+                    f"✅ {quantity}x '{item_name}' zum Lager '{self.warehouse_name}' hinzugefügt.")
             else:
                 if item_name not in warehouses.get(self.warehouse_name, {}):
                     await interaction.response.send_message("⚠️ Item nicht im Lager gefunden.", ephemeral=True)
@@ -354,14 +381,17 @@ class ItemModal(discord.ui.Modal):
                     await interaction.response.send_message("⚠️ Nicht genügend Items im Lager.", ephemeral=True)
                     return
                 warehouses[self.warehouse_name][item_name] -= quantity
-                await interaction.response.send_message(f"✅ {quantity}x '{item_name}' vom Lager '{self.warehouse_name}' entfernt.")
+                save_warehouses()  # Speichern nach der Änderung
+                await interaction.response.send_message(
+                    f"✅ {quantity}x '{item_name}' vom Lager '{self.warehouse_name}' entfernt.")
 
             # Update the warehouse content message
             content = get_warehouse_content(self.warehouse_name)
             await interaction.message.edit(content=content, view=WarehouseView(self.warehouse_name))
 
         except ValueError:
-            await interaction.response.send_message("⚠️ Bitte geben Sie eine gültige Menge ein (nur Zahlen).", ephemeral=True)
+            await interaction.response.send_message("⚠️ Bitte geben Sie eine gültige Menge ein (nur Zahlen).",
+                                                    ephemeral=True)
 
 @bot.tree.command(name="warehouse", description="Zeigt den Inhalt des Lagers an")
 async def warehouse(interaction: discord.Interaction, warehouse_name: str) -> None:
@@ -373,6 +403,13 @@ async def warehouse(interaction: discord.Interaction, warehouse_name: str) -> No
     content = get_warehouse_content(warehouse_name)
     view = WarehouseView(warehouse_name)
     await interaction.response.send_message(content, view=view)
+
+@bot.event
+async def on_ready():
+    global warehouses
+    warehouses = load_warehouses()  # Lade die Lagerdaten beim Start des Bots
+    print("Bot ist bereit und Lagerdaten wurden geladen.")
+
 
 @bot.tree.command(name="weather", description="Zeigt das aktuelle Wetter für eine Stadt an.")
 @app_commands.describe(city="Die Stadt, für die Sie das Wetter sehen möchten.")
