@@ -955,7 +955,7 @@ async def quote(interaction: discord.Interaction, message_id: str):
 # Pfad zur JSON-Datei für das Log
 REACTION_LOG_FILE = "reaction_log.json"
 
-# Funktion zum Laden des Logins
+# Funktion zum Laden des Reaction Logs
 def load_reaction_log() -> list:
     if os.path.exists(REACTION_LOG_FILE):
         with open(REACTION_LOG_FILE, "r") as file:
@@ -970,11 +970,41 @@ def load_reaction_log() -> list:
     else:
         return []
 
-# Funktion zum Speichern des Logs
+# Funktion zum Speichern des Reaction Logs
 def save_reaction_log(log_data: list) -> None:
     with open(REACTION_LOG_FILE, "w") as file:
         json.dump(log_data, file, indent=4)
 
+# Loggen des Ereignisses
+def log_reaction_event(action: str, channel_id: int, emojis: list):
+    event = {
+        "action": action,
+        "channel_id": channel_id,
+        "emojis": emojis,
+        "timestamp": discord.utils.utcnow().isoformat()
+    }
+    reaction_log.append(event)
+    save_reaction_log(reaction_log)
+
+# Event für das Reagieren auf Nachrichten
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return  # Ignoriere Bot-Nachrichten
+
+    if message.channel.id in reaction_channels:
+        emoji_list = reaction_channels[message.channel.id]
+        for emoji in emoji_list:
+            try:
+                if emoji.isdigit():  # Emoji-ID-Überprüfung
+                    emoji = discord.PartialEmoji(name=emoji)  # Umwandlung in ein validiertes Emoji
+                await message.add_reaction(emoji)
+                log_reaction_event("add_reaction", message.channel.id, [emoji])
+            except discord.HTTPException:
+                print(f'Konnte nicht auf die Nachricht mit {emoji} reagieren.')
+            except Exception as e:
+                print(f"Fehler beim Hinzufügen von Reaktionen: {e}")
+                
 # Laden des bestehenden Logs beim Start
 reaction_log = load_reaction_log()
 
