@@ -23,7 +23,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Discord Bot
+      - name: Set up logging
+        run: |
+          mkdir -p logs
+          export LOG_FILE="logs/bot.log"
+          touch $LOG_FILE
+          tail -f $LOG_FILE &  # Protokolle überwachen
+
+      - name: Run Discord Bot in background
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
-        run: python main.py
+        run: |
+          nohup python main.py > bot.log 2>&1 &
