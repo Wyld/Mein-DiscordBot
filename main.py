@@ -26,13 +26,6 @@ from flask import Flask
 import threading
 from database import *
 
-@bot.event
-async def on_ready():
-    initialize_database()
-    print(f"{bot.user} is ready!")
-
-
-
 keep_alive()
 
 # Lade Umgebungsvariablen aus .env-Datei
