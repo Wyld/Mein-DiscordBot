@@ -992,19 +992,25 @@ async def on_message(message):
     if message.author.bot:
         return  # Ignoriere Bot-Nachrichten
 
+    # Überprüfen, ob der Kanal in den Reaktionskanälen ist
     if message.channel.id in reaction_channels:
         emoji_list = reaction_channels[message.channel.id]
         for emoji in emoji_list:
             try:
-                if emoji.isdigit():  # Emoji-ID-Überprüfung
-                    emoji = discord.PartialEmoji(name=emoji)  # Umwandlung in ein validiertes Emoji
+                # Wenn das Emoji eine ID hat, sicherstellen, dass es korrekt als benutzerdefiniertes Emoji erstellt wird
+                if emoji.startswith('<:') and emoji.endswith('>'):
+                    emoji_name = emoji.split(':')[1]
+                    emoji_id = emoji.split(':')[2][:-1]
+                    emoji = discord.PartialEmoji(name=emoji_name, id=int(emoji_id))  # Umwandeln in PartialEmoji
                 await message.add_reaction(emoji)
                 log_reaction_event("add_reaction", message.channel.id, [emoji])
-            except discord.HTTPException:
-                print(f'Konnte nicht auf die Nachricht mit {emoji} reagieren.')
+            except discord.HTTPException as e:
+                print(f'Fehler beim Hinzufügen der Reaktion {emoji}: {e}')
             except Exception as e:
                 print(f"Fehler beim Hinzufügen von Reaktionen: {e}")
-                
+    await bot.process_commands(message)  # Damit andere Befehle weiterhin ausgeführt werden
+
+
 # Laden des bestehenden Logs beim Start
 reaction_log = load_reaction_log()
 
@@ -1033,13 +1039,16 @@ async def react_all(interaction: discord.Interaction, channel: discord.TextChann
     # Umwandeln der Emoji-Zeichenfolge in eine Liste
     emoji_list = [emoji.strip() for emoji in emojis.split(',')]
 
-    # Speichern der Kanal- und Emoji-Informationen
-    reaction_channels[channel.id] = emoji_list
+    if emoji_list:  # Stelle sicher, dass Emojis übergeben wurden
+        # Speichern der Kanal- und Emoji-Informationen
+        reaction_channels[channel.id] = emoji_list
 
-    # Loggen des Ereignisses
-    log_reaction_event("react_all", channel.id, emoji_list)
+        # Loggen des Ereignisses
+        log_reaction_event("react_all", channel.id, emoji_list)
 
-    await interaction.response.send_message(f'Bot wird jetzt auf Nachrichten in <#{channel.id}> mit {", ".join(emoji_list)} reagieren.', ephemeral=True)
+        await interaction.response.send_message(f'Bot wird jetzt auf Nachrichten in <#{channel.id}> mit {", ".join(emoji_list)} reagieren.', ephemeral=True)
+    else:
+        await interaction.response.send_message("⚠️ Keine gültigen Emojis angegeben.", ephemeral=True)
 
 @bot.tree.command(name='stop_reacting', description='Stoppt das Reagieren des Bots auf Nachrichten im angegebenen Kanal.')
 @app_commands.describe(channel="Der Kanal, in dem das Reagieren gestoppt werden soll")
