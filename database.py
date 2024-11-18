@@ -1,7 +1,6 @@
 import sqlite3
 import time
 
-# Datenbank initialisieren (Tabellen erstellen)
 def initialize_database():
     with sqlite3.connect('bot_data.db') as connection:
         cursor = connection.cursor()
@@ -16,58 +15,61 @@ def initialize_database():
 
         # Tabelle für Lagerinhalte erstellen
         cursor.execute('''
-                CREATE TABLE IF NOT EXISTS warehouses (
-                    warehouse_name TEXT,
-                    item_name TEXT,
-                    quantity INTEGER,
-                    PRIMARY KEY (warehouse_name, item_name)
-                )
-                ''')
+        CREATE TABLE IF NOT EXISTS warehouses (
+            warehouse_name TEXT,
+            item_name TEXT,
+            quantity INTEGER,
+            PRIMARY KEY (warehouse_name, item_name)
+        )
+        ''')
 
         # Tabelle für Giveaways erstellen
         cursor.execute('''
-                CREATE TABLE IF NOT EXISTS giveaways (
-                    giveaway_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    channel_id INTEGER,
-                    message_id INTEGER,
-                    prize TEXT,
-                    end_time INTEGER
-                )
-                ''')
+        CREATE TABLE IF NOT EXISTS giveaways (
+            giveaway_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id INTEGER,
+            message_id INTEGER,
+            prize TEXT,
+            end_time INTEGER
+        )
+        ''')
 
         # Tabelle für Reaktionskanäle erstellen
         cursor.execute('''
-              CREATE TABLE IF NOT EXISTS reaction_channels (
-                  channel_id INTEGER PRIMARY KEY,
-                  emojis TEXT
-              )
-              ''')
+        CREATE TABLE IF NOT EXISTS reaction_channels (
+            channel_id INTEGER PRIMARY KEY,
+            emojis TEXT
+        )
+        ''')
 
         # Tabelle für Countdown-Timer erstellen
         cursor.execute('''
-               CREATE TABLE IF NOT EXISTS countdowns (
-                   timer_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   user_id INTEGER,
-                   channel_id INTEGER,
-                   end_time INTEGER
-               )
-               ''')
+        CREATE TABLE IF NOT EXISTS countdowns (
+            timer_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            channel_id INTEGER,
+            end_time INTEGER
+        )
+        ''')
 
-        # Tabelle für Reaction Roles
-        cursor.execute('''CREATE TABLE IF NOT EXISTS reaction_roles (
-                              message_id INTEGER PRIMARY KEY,
-                              role_id INTEGER,
-                              emoji TEXT
-                              )''')
+        # Tabelle für Reaction Roles erstellen
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS reaction_roles (
+            message_id INTEGER PRIMARY KEY,
+            role_id INTEGER,
+            emoji TEXT
+        )
+        ''')
 
-        cursor.execute('''CREATE TABLE IF NOT EXISTS log_channels (
-                             guild_id INTEGER PRIMARY KEY,
-                             channel_id INTEGER
-                             )''')
+        # Tabelle für Log-Kanäle erstellen
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS log_channels (
+            guild_id INTEGER PRIMARY KEY,
+            channel_id INTEGER
+        )
+        ''')
 
-        # Tabelle für weitere Daten kannst du hier hinzufügen
         connection.commit()
-
 
 # Bankkonto erstellen
 def create_bank_account(account_name):

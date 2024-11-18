@@ -24,7 +24,8 @@ from flask_app import keep_alive
 from discord_presence import update_presence
 from flask import Flask
 import threading
-from database import *
+from database import initialize_database
+import sqlite3
 
 keep_alive()
 
@@ -59,10 +60,19 @@ command_permissions: Dict[str, List[str]] = {}
 async def on_ready():
     initialize_database()
     print(f'{bot.user.name} is ready!')
-    try:
-        await bot.tree.sync()
-    except Exception as e:
-        print(f"Error syncing commands: {e}")
+
+def check_database():
+    with sqlite3.connect("bot_data.db") as connection:
+        cursor = connection.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        print("Erstellte Tabellen:", cursor.fetchall())
+
+@bot.event
+async def on_ready():
+    initialize_database()  # Initialisiert die Tabellen
+    check_database()       # Gibt die erstellten Tabellen aus (zum Testen)
+    print(f"{bot.user} is ready!")
+
 
 
 @bot.event
