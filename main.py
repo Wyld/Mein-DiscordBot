@@ -24,8 +24,7 @@ from flask_app import keep_alive
 from discord_presence import update_presence
 from flask import Flask
 import threading
-from database import initialize_database
-import sqlite3
+import json
 
 keep_alive()
 
@@ -58,31 +57,13 @@ command_permissions: Dict[str, List[str]] = {}
 
 @bot.event
 async def on_ready():
-    initialize_database()
-    print(f'{bot.user.name} is ready!')
-
-def check_database():
-    with sqlite3.connect("bot_data.db") as connection:
-        cursor = connection.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        print("Erstellte Tabellen:", cursor.fetchall())
-
-@bot.event
-async def on_ready():
-    initialize_database()  # Initialisiert die Tabellen
-    check_database()       # Gibt die erstellten Tabellen aus (zum Testen)
-    print(f"{bot.user} is ready!")
-
-
-
-@bot.event
-async def on_ready():
     print(f'{bot.user.name} is ready!')
     try:
         await bot.tree.sync()
         print("Slash-Befehle erfolgreich synchronisiert.")
     except Exception as e:
         print(f"Fehler beim Synchronisieren der Slash-Befehle: {e}")
+
 
 async def check_permissions(interaction: discord.Interaction, command_name: str) -> bool:
     """Überprüfen, ob der Benutzer Berechtigungen für den Befehl hat."""
@@ -204,13 +185,15 @@ async def create_account(interaction: discord.Interaction, account_name: str) ->
         await safe_send(interaction, "⚠️ Du hast nicht die Berechtigung, diesen Befehl auszuführen.")
         return
 
-    if get_balance(account_name) is not None:
+    if account_name in bank_accounts:
         await safe_send(interaction, "⚠️ Ein Konto mit diesem Namen existiert bereits!")
         return
 
-    create_bank_account(account_name)
+    bank_accounts[account_name] = 0
+    view = BankView(account_name, interaction.user.roles)
     await interaction.response.send_message(
-        f"💳 Bankkonto '{account_name}' erfolgreich erstellt! Aktueller Kontostand: 0€"
+        f"💳 Bankkonto '{account_name}' erfolgreich erstellt! Aktueller Kontostand: {bank_accounts[account_name]}€",
+        view=view
     )
 
 class BankView(discord.ui.View):
@@ -255,26 +238,23 @@ class AmountModal(discord.ui.Modal):
                 await interaction.response.send_message("⚠️ Bitte geben Sie einen Betrag größer als 0 ein.", ephemeral=True)
                 return
 
-            current_balance = get_balance(self.account_name)
-            if current_balance is None:
-                await interaction.response.send_message("⚠️ Dieses Konto existiert nicht.", ephemeral=True)
-                return
-
             if self.title == "Einzahlen":
-                update_balance(self.account_name, amount)
-                new_balance = get_balance(self.account_name)
+                bank_accounts[self.account_name] += amount
                 await interaction.response.send_message(
-                    f"💵 {amount}€ in '{self.account_name}' eingezahlt! Neuer Kontostand: {new_balance}€", ephemeral=True
+                    f"💵 {amount}€ in '{self.account_name}' eingezahlt! Neuer Kontostand: {bank_accounts[self.account_name]}€", ephemeral=True
                 )
-            else:  # Abheben
-                if current_balance < amount:
+            else:
+                if bank_accounts[self.account_name] < amount:
                     await interaction.response.send_message("⚠️ Nicht genügend Mittel auf dem Konto.", ephemeral=True)
                     return
-                update_balance(self.account_name, -amount)
-                new_balance = get_balance(self.account_name)
+                bank_accounts[self.account_name] -= amount
                 await interaction.response.send_message(
-                    f"💵 {amount}€ von '{self.account_name}' abgehoben! Neuer Kontostand: {new_balance}€", ephemeral=True
+                    f"💵 {amount}€ von '{self.account_name}' abgehoben! Neuer Kontostand: {bank_accounts[self.account_name]}€", ephemeral=True
                 )
+
+            await interaction.message.edit(
+                content=f"💳 Kontostand von '{self.account_name}': {bank_accounts[self.account_name]}€", view=BankView(self.account_name, interaction.user.roles)
+            )
 
         except ValueError:
             await interaction.response.send_message("⚠️ Bitte geben Sie eine gültige Menge ein (nur Zahlen).", ephemeral=True)
@@ -296,12 +276,14 @@ async def account(interaction: discord.Interaction, account_name: str) -> None:
     )
 
 def get_warehouse_content(warehouse_name: str) -> str:
-    items = get_warehouse_content_from_db(warehouse_name)
-    if not items:
+    """Retrieve the contents of the specified warehouse."""
+    warehouse = warehouses.get(warehouse_name, {})
+    if not warehouse:
         return "📦 Das Lager ist leer."
-    return "\n".join([f"{name}: {quantity}x" for name, quantity in items])
+    return "\n".join([f"{name}: {quantity}x" for name, quantity in warehouse.items()])
 
 class WarehouseView(discord.ui.View):
+    """View for warehouse actions."""
     def __init__(self, warehouse_name: str) -> None:
         super().__init__(timeout=180)
         self.warehouse_name = warehouse_name
@@ -325,11 +307,23 @@ class WarehouseView(discord.ui.View):
         if not await check_permissions(interaction, "warehouse"):
             await safe_send(interaction, "⚠️ Du hast nicht die Berechtigung, das Lager zu leeren.")
             return
-        clear_warehouse(self.warehouse_name)
+        await self.clear_warehouse(interaction)
+
+    async def open_add_item_modal(self, interaction: discord.Interaction) -> None:
+        modal = ItemModal("Item hinzufügen", self.warehouse_name)
+        await interaction.response.send_modal(modal)
+
+    async def open_remove_item_modal(self, interaction: discord.Interaction) -> None:
+        modal = ItemModal("Item entfernen", self.warehouse_name)
+        await interaction.response.send_modal(modal)
+
+    async def clear_warehouse(self, interaction: discord.Interaction) -> None:
+        warehouses[self.warehouse_name] = {}
         await interaction.response.send_message(f"🗑️ Das Lager '{self.warehouse_name}' wurde geleert.")
-        await interaction.message.edit(content="📦 Das Lager ist leer.", view=self)
+        await interaction.message.edit(content="📦 Das Lager ist leer.", view=self)  # Update the message
 
 class ItemModal(discord.ui.Modal):
+    """Modal for adding/removing items in the warehouse."""
     def __init__(self, action: str, warehouse_name: str) -> None:
         super().__init__(title=action)
         self.warehouse_name = warehouse_name
@@ -339,6 +333,7 @@ class ItemModal(discord.ui.Modal):
         self.add_item(self.quantity_input)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        """Handle adding/removing items submission."""
         item_name = self.item_name_input.value
         try:
             quantity = int(self.quantity_input.value)
@@ -347,12 +342,21 @@ class ItemModal(discord.ui.Modal):
                 return
 
             if self.title == "Item hinzufügen":
-                add_item_to_warehouse(self.warehouse_name, item_name, quantity)
+                if self.warehouse_name not in warehouses:
+                    warehouses[self.warehouse_name] = {}
+                warehouses[self.warehouse_name][item_name] = warehouses[self.warehouse_name].get(item_name, 0) + quantity
                 await interaction.response.send_message(f"✅ {quantity}x '{item_name}' zum Lager '{self.warehouse_name}' hinzugefügt.")
             else:
-                remove_item_from_warehouse(self.warehouse_name, item_name, quantity)
+                if item_name not in warehouses.get(self.warehouse_name, {}):
+                    await interaction.response.send_message("⚠️ Item nicht im Lager gefunden.", ephemeral=True)
+                    return
+                if warehouses[self.warehouse_name][item_name] < quantity:
+                    await interaction.response.send_message("⚠️ Nicht genügend Items im Lager.", ephemeral=True)
+                    return
+                warehouses[self.warehouse_name][item_name] -= quantity
                 await interaction.response.send_message(f"✅ {quantity}x '{item_name}' vom Lager '{self.warehouse_name}' entfernt.")
 
+            # Update the warehouse content message
             content = get_warehouse_content(self.warehouse_name)
             await interaction.message.edit(content=content, view=WarehouseView(self.warehouse_name))
 
@@ -361,6 +365,7 @@ class ItemModal(discord.ui.Modal):
 
 @bot.tree.command(name="warehouse", description="Zeigt den Inhalt des Lagers an")
 async def warehouse(interaction: discord.Interaction, warehouse_name: str) -> None:
+    """Show the warehouse and its options."""
     if not await check_permissions(interaction, "warehouse"):
         await safe_send(interaction, "⚠️ Du hast nicht die Berechtigung, diesen Befehl auszuführen.")
         return
@@ -490,93 +495,71 @@ async def fullclear(interaction: discord.Interaction) -> None:
 
 @bot.tree.command(name="giveaway", description="Starte ein Giveaway im aktuellen Kanal")
 async def giveaway(interaction: discord.Interaction, prize: str, duration: str) -> None:
+    # Überprüfen der Berechtigungen
     if not await check_permissions(interaction, "giveaway"):
         await safe_send(interaction, "⚠️ Du hast keine Berechtigung, ein Giveaway zu starten.")
         return
+    """
+    Startet ein Giveaway im aktuellen Kanal und zeigt die verbleibende Zeit an.
 
-    # Parse duration
+    Parameter:
+    - prize: Der Preis des Giveaways
+    - duration: Die Dauer des Giveaways als Zeichenkette (z. B. "1h", "30m", "2h 30m")
+    """
+
+    # Parse the duration input with regex to support complex formats like "2h 30m"
     match = re.match(r"((?P<hours>\d+)h)?\s*((?P<minutes>\d+)m)?\s*((?P<seconds>\d+)s)?", duration)
     if not match:
         await interaction.response.send_message("⚠️ Bitte gebe die Dauer in einem gültigen Format an (z. B. '1h', '30m', '2h 30m', '45s').")
         return
 
+    # Extrahiere Stunden, Minuten und Sekunden und konvertiere in Sekunden
     duration_seconds = (
         int(match.group("hours") or 0) * 3600 +
         int(match.group("minutes") or 0) * 60 +
         int(match.group("seconds") or 0)
     )
 
+    # Überprüfen, ob die Dauer größer als 0 ist
     if duration_seconds <= 0:
         await interaction.response.send_message("⚠️ Die Dauer muss positiv sein.")
         return
 
-    # Initiale Giveaway-Nachricht
-    message = await interaction.response.send_message(
+    # Sendet die initiale Nachricht, um das Giveaway zu starten
+    await interaction.response.send_message(
         f"🎉 **Giveaway gestartet!** 🎉\nPreis: **{prize}**\nDauer: **{duration}**\nReagiere mit 🎉, um teilzunehmen!",
         ephemeral=False
     )
+
+    # Holt die gesendete Nachricht, um sie für das Countdown-Update zu verwenden
     giveaway_message = await interaction.original_response()
     await giveaway_message.add_reaction("🎉")
 
-    # Giveaway in der Datenbank speichern
-    create_giveaway(interaction.channel.id, giveaway_message.id, prize, duration_seconds)
-
-    # Countdown-Schleife für die Aktualisierung der Nachricht
+    # Countdown-Schleife
     while duration_seconds > 0:
         hours, remainder = divmod(duration_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         time_left = f"{hours}h {minutes}m {seconds}s" if hours > 0 else f"{minutes}m {seconds}s"
+
+        # Aktualisiere die Nachricht mit der verbleibenden Zeit
         await giveaway_message.edit(content=f"🎉 **Giveaway gestartet!** 🎉\nPreis: **{prize}**\nZeit verbleibend: **{time_left}**\nReagiere mit 🎉, um teilzunehmen!")
+
+        # Warte eine Sekunde und verringere die Dauer
         await asyncio.sleep(1)
         duration_seconds -= 1
 
-    # Gewinner ermitteln und Giveaway abschließen
+    # Hole und benachrichtige den Gewinner nach Ablauf des Countdowns
     giveaway_message = await interaction.channel.fetch_message(giveaway_message.id)
+
+    # Benutzer abrufen und in einer Liste sammeln
     users = [user async for user in giveaway_message.reactions[0].users() if not user.bot]
 
     if not users:
         await interaction.followup.send("Es gab keine Teilnehmer am Giveaway.")
-    else:
-        winner = random.choice(users)
-        await interaction.followup.send(f"🎉 **Herzlichen Glückwunsch** {winner.mention}! Du hast **{prize}** gewonnen! 🎉")
+        return
 
-    # Giveaway aus der Datenbank löschen
-    giveaway_id = giveaway_message.id  # Hierfür kannst du ggf. den Datenbank-PK verwenden
-    delete_giveaway(giveaway_id)
-
-@bot.event
-async def on_ready():
-    initialize_database()
-    asyncio.create_task(monitor_giveaways())
-    print(f'{bot.user.name} is ready!')
-
-async def monitor_giveaways():
-    while True:
-        active_giveaways = get_active_giveaways()
-        current_time = int(time.time())
-
-        for giveaway in active_giveaways:
-            giveaway_id, channel_id, message_id, prize, end_time = giveaway
-            remaining_time = end_time - current_time
-
-            if remaining_time <= 0:
-                channel = bot.get_channel(channel_id)
-                if channel:
-                    try:
-                        message = await channel.fetch_message(message_id)
-                        users = [user async for user in message.reactions[0].users() if not user.bot]
-                        if users:
-                            winner = random.choice(users)
-                            await channel.send(f"🎉 **Herzlichen Glückwunsch** {winner.mention}! Du hast **{prize}** gewonnen! 🎉")
-                        else:
-                            await channel.send("Es gab keine Teilnehmer am Giveaway.")
-                    except Exception as e:
-                        print(f"Fehler beim Abschluss eines Giveaways: {e}")
-
-                delete_giveaway(giveaway_id)
-
-        await asyncio.sleep(10)  # Überprüfe alle 10 Sekunden
-
+    winner = random.choice(users)
+    await interaction.followup.send(f"🎉 **Herzlichen Glückwunsch** {winner.mention}! Du hast **{prize}** gewonnen! 🎉")
 
 @bot.tree.command(name="kick", description="Kicke einen Benutzer vom Server")
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "Kein Grund angegeben") -> None:
@@ -892,6 +875,7 @@ reaction_channels = {}
 @bot.tree.command(name='react_all', description='Reagiert auf jede Nachricht im angegebenen Kanal mit den angegebenen Emojis.')
 @app_commands.describe(channel="Der Kanal, in dem auf Nachrichten reagiert werden soll", emojis="Die Emojis, mit denen reagiert werden soll (durch Kommas getrennt)")
 async def react_all(interaction: discord.Interaction, channel: discord.TextChannel, emojis: str):
+    # Überprüfen der Berechtigungen
     if not interaction.user.guild_permissions.administrator:
         await safe_send(interaction, "⚠️ Nur Administratoren können das tun.")
         return
@@ -899,30 +883,32 @@ async def react_all(interaction: discord.Interaction, channel: discord.TextChann
     # Umwandeln der Emoji-Zeichenfolge in eine Liste
     emoji_list = [emoji.strip() for emoji in emojis.split(',')]
 
-    # Speichern in der Datenbank
-    save_reaction_channel(channel.id, emoji_list)
+    # Speichern der Kanal- und Emoji-Informationen
+    reaction_channels[channel.id] = emoji_list
 
     await interaction.response.send_message(f'Bot wird jetzt auf Nachrichten in <#{channel.id}> mit {", ".join(emoji_list)} reagieren.', ephemeral=True)
 
 @bot.tree.command(name='stop_reacting', description='Stoppt das Reagieren des Bots auf Nachrichten im angegebenen Kanal.')
 @app_commands.describe(channel="Der Kanal, in dem das Reagieren gestoppt werden soll")
 async def stop_reacting(interaction: discord.Interaction, channel: discord.TextChannel):
+    # Überprüfen der Berechtigungen
     if not interaction.user.guild_permissions.administrator:
         await safe_send(interaction, "⚠️ Nur Administratoren können das tun.")
         return
 
-    # Entfernen aus der Datenbank
-    remove_reaction_channel(channel.id)
-
-    await interaction.response.send_message(f'Bot wird nicht mehr auf Nachrichten in <#{channel.id}> reagieren.', ephemeral=True)
+    if channel.id in reaction_channels:
+        del reaction_channels[channel.id]  # Entferne den Kanal aus dem Speicher
+        await interaction.response.send_message(f'Bot wird nicht mehr auf Nachrichten in <#{channel.id}> reagieren.', ephemeral=True)
+    else:
+        await interaction.response.send_message(f'Bot reagiert bereits nicht auf Nachrichten in <#{channel.id}>.', ephemeral=True)
 
 @bot.event
 async def on_message(message):
+    # Überprüfen, ob die Nachricht nicht vom Bot selbst stammt
     if message.author.bot:
         return
 
-    # Überprüfen, ob der Kanal in der Datenbank gespeichert ist
-    reaction_channels = get_all_reaction_channels()
+    # Überprüfen, ob der Kanal in der Liste der Reaktionskanäle ist
     if message.channel.id in reaction_channels:
         emoji_list = reaction_channels[message.channel.id]
         for emoji in emoji_list:
@@ -970,51 +956,16 @@ async def countdown(interaction: discord.Interaction, seconds: int):
         await interaction.response.send_message("⏰ Die Zeit muss eine positive Zahl sein!")
         return
 
-    # Speichere den Countdown in der Datenbank
-    timer_id = create_countdown(interaction.user.id, interaction.channel.id, seconds)
-
     # Initiale Nachricht
     await interaction.response.send_message(f"⏰ Countdown gestartet für {seconds} Sekunden...")
 
-    # Countdown-Schleife für die Aktualisierung der Nachricht
+    # Countdown loop mit laufendem Update
     for remaining in range(seconds, 0, -1):
         await interaction.edit_original_response(content=f"⏳ Verbleibende Zeit: {remaining} Sekunden")
         await asyncio.sleep(1)
 
-    # Timer-Ende und Benachrichtigung
+    # Sendet eine neue Nachricht, sobald der Countdown endet, und pingt den Benutzer
     await interaction.followup.send(f"⏰ Der Countdown ist abgelaufen! {interaction.user.mention}")
-
-    # Timer aus der Datenbank löschen
-    delete_countdown(timer_id)
-
-@bot.event
-async def on_ready():
-    initialize_database()
-    asyncio.create_task(monitor_countdowns())
-    print(f'{bot.user.name} is ready!')
-
-async def monitor_countdowns():
-    while True:
-        active_timers = get_active_countdowns()
-        current_time = int(time.time())
-
-        for timer_id, user_id, channel_id, end_time in active_timers:
-            remaining_time = end_time - current_time
-
-            if remaining_time <= 0:
-                # Timer ist abgelaufen, Benutzer benachrichtigen
-                channel = bot.get_channel(channel_id)
-                if channel:
-                    try:
-                        user = await bot.fetch_user(user_id)
-                        await channel.send(f"⏰ Der Countdown ist abgelaufen! {user.mention}")
-                    except Exception as e:
-                        print(f"Fehler beim Benachrichtigen des Benutzers: {e}")
-
-                delete_countdown(timer_id)
-
-        await asyncio.sleep(10)  # Überprüfe alle 10 Sekunden
-
 
 # Setze die Sprache für Wikipedia auf Deutsch
 wikipedia.set_lang('de')
@@ -1047,9 +998,25 @@ async def create_role(interaction: discord.Interaction, role_name: str):
     await guild.create_role(name=role_name)
     await interaction.response.send_message(f'Die Rolle "{role_name}" wurde erstellt!')
 
+# JSON-Datei zum Speichern der Log-Channels
+DATA_FILE = "log_channels.json"
 
-# Speicher für Log-Channel IDs
-log_channels = {}
+# Daten speichern
+def save_data(data, filename=DATA_FILE):
+    with open(filename, "w") as file:
+        json.dump(data, file, indent=4)
+
+# Daten laden
+def load_data(filename=DATA_FILE):
+    try:
+        with open(filename, "r") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return {}  # Gibt ein leeres Dict zurück, falls die Datei nicht existiert
+
+# Log-Channels beim Start laden
+log_channels = load_data()
+
 
 # Speicher für Nachrichten (um Spam zu überwachen)
 message_history = defaultdict(list)  # key: user_id, value: list of timestamps of messages
@@ -1060,34 +1027,48 @@ SPAM_LIMIT = 5  # Nachrichtenlimit
 @bot.tree.command(name='set_log_channel', description='Setzt den Kanal für alle Log-Nachrichten.')
 @app_commands.describe(channel="Der Kanal, in dem Logs gespeichert werden.")
 async def set_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    # Überprüfe, ob der Benutzer Administratorrechte hat
+    # Überprüfen, ob der Benutzer Administratorrechte hat
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("⚠️ Nur Administratoren können das tun.", ephemeral=True)
-        return
+        return  # Abbrechen, wenn der Benutzer keine Administratorrechte hat
 
-    # Speichern in der Datenbank
-    connection = sqlite3.connect("bot_data.db")
-    cursor = connection.cursor()
-    cursor.execute("INSERT OR REPLACE INTO log_channels (guild_id, channel_id) VALUES (?, ?)",
-                   (interaction.guild.id, channel.id))
-    connection.commit()
-    connection.close()
-
-    # Bestätigungsnachricht senden
+    # Den Log-Kanal setzen und speichern
+    log_channels[interaction.guild.id] = channel.id
+    save_data(log_channels)  # Änderungen in der JSON-Datei speichern
     await interaction.response.send_message(f'Log-Kanal auf {channel.mention} gesetzt!', ephemeral=True)
 
-@bot.event
-async def on_ready():
-    initialize_log_channel_db()
-    print(f"{bot.user} is ready!")
+async def send_embed_log(guild_id, title, description, color=0x3498db):
+    # Prüfen, ob ein Log-Kanal gesetzt ist
+    if guild_id not in log_channels:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {guild_id} gesetzt!")
+        return
 
-async def send_embed_log(bot, guild_id, title, description, color=0x3498db):
-    channel_id = get_log_channel(guild_id)
-    if channel_id:
-        log_channel = bot.get_channel(channel_id)
-        if log_channel:
-            embed = Embed(title=title, description=description, color=color)
-            await log_channel.send(embed=embed)
+    # Log-Channel-ID holen und Kanal abrufen
+    log_channel_id = log_channels[guild_id]
+    log_channel = bot.get_channel(log_channel_id)
+    if log_channel is None:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden!")
+        return
+
+    # Embed senden
+    embed = Embed(title=title, description=description, color=color)
+    await log_channel.send(embed=embed)
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return  # Ignoriere Bot-Nachrichten
+
+    # Beispiel-Log für empfangene Nachrichten
+    await send_embed_log(
+        guild_id=message.guild.id,
+        title="Nachricht empfangen",
+        description=f"Von: {message.author}\nIn: {message.channel.mention}\nInhalt: {message.content}"
+    )
+
+    # Spam-Erkennung oder andere Logik hier einfügen
+    await bot.process_commands(message)
+
 
 # Event: Nachricht gelöscht
 @bot.event
@@ -1661,79 +1642,41 @@ class RoleButton(discord.ui.Button):
 
 @bot.tree.command(name="reactionroles", description="Erstellt eine Reaktionsrollen-Auswahl mit Buttons.")
 async def reactionroles(interaction: discord.Interaction, roles: str, emojis: str):
-    # Trenne Rollen und Emojis in Listen
-    role_mentions = roles.split()
-    emoji_list = emojis.split()
+    # Zerlege die Rollen und Emojis in Listen
+    role_mentions = roles.split()  # Trenne Rollen durch Leerzeichen
+    emoji_list = emojis.split()   # Trenne Emojis durch Leerzeichen
 
+    # Überprüfe, ob die Anzahl der Rollen mit der Anzahl der Emojis übereinstimmt
     if len(role_mentions) != len(emoji_list):
         await interaction.response.send_message(
-            "⚠️ Die Anzahl der Rollen muss mit der Anzahl der Emojis übereinstimmen.", ephemeral=True)
+            "⚠️ Die Anzahl der Rollen muss mit der Anzahl der Emojis übereinstimmen.",
+            ephemeral=True
+        )
         return
 
+    # Liste der tatsächlichen discord.Role-Objekte
     role_objects = []
     for role_str in role_mentions:
         try:
+            # Entferne die Zeichen "<@&>" und konvertiere die ID zu einer Zahl
             role_id = int(role_str.strip("<@&>"))
             role = interaction.guild.get_role(role_id)
             if not role:
                 raise ValueError(f"Die Rolle mit der ID {role_id} wurde nicht gefunden.")
             role_objects.append(role)
         except ValueError as e:
-            await interaction.response.send_message(f"⚠️ Fehler bei der Verarbeitung der Rolle '{role_str}': {e}",
-                                                    ephemeral=True)
+            await interaction.response.send_message(
+                f"⚠️ Fehler bei der Verarbeitung der Rolle '{role_str}': {e}",
+                ephemeral=True
+            )
             return
 
     # Erstelle die View mit den Buttons
     view = ReactionRolesView(role_objects, emoji_list)
-    message = await interaction.response.send_message(
+    await interaction.response.send_message(
         "Reaktionsrollen: Klicke auf die Buttons, um Rollen zu erhalten oder zu entfernen.",
         view=view
     )
-
-    # Speichere die Rollen-Emoji-Zuordnung in der Datenbank
-    connection = sqlite3.connect("bot_data.db")
-    cursor = connection.cursor()
-    for role, emoji in zip(role_objects, emoji_list):
-        cursor.execute("INSERT INTO reaction_roles (message_id, role_id, emoji) VALUES (?, ?, ?)",
-                       (message.id, role.id, emoji))
-    connection.commit()
-    connection.close()
-
-@bot.event
-async def on_raw_reaction_add(payload):
-    if payload.member.bot:
-        return
-
-    connection = sqlite3.connect("bot_data.db")
-    cursor = connection.cursor()
-    cursor.execute("SELECT role_id FROM reaction_roles WHERE message_id = ? AND emoji = ?",
-                   (payload.message_id, payload.emoji.name))
-    result = cursor.fetchone()
-    connection.close()
-
-    if result:
-        guild = bot.get_guild(payload.guild_id)
-        role = guild.get_role(result[0])
-        if role:
-            await payload.member.add_roles(role)
-
-@bot.event
-async def on_raw_reaction_remove(payload):
-    guild = bot.get_guild(payload.guild_id)
-    member = guild.get_member(payload.user_id)
-    if member and not member.bot:
-        connection = sqlite3.connect("bot_data.db")
-        cursor = connection.cursor()
-        cursor.execute("SELECT role_id FROM reaction_roles WHERE message_id = ? AND emoji = ?",
-                       (payload.message_id, payload.emoji.name))
-        result = cursor.fetchone()
-        connection.close()
-
-        if result:
-            role = guild.get_role(result[0])
-            if role:
-                await member.remove_roles(role)
-
 
 # Event: Synchronisiere den Command-Tree beim Start des Bots
 @bot.event
