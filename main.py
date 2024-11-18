@@ -25,6 +25,7 @@ from discord_presence import update_presence
 from flask import Flask
 import threading
 import json
+from datetime import datetime
 
 keep_alive()
 
@@ -350,7 +351,7 @@ class WarehouseView(discord.ui.View):
 
 
 class ItemModal(discord.ui.Modal):
-    """Modal for adding/removing items in the warehouse."""
+    """Modal für das Hinzufügen und Entfernen von Items im Lager."""
     def __init__(self, action: str, warehouse_name: str) -> None:
         super().__init__(title=action)
         self.warehouse_name = warehouse_name
@@ -360,7 +361,7 @@ class ItemModal(discord.ui.Modal):
         self.add_item(self.quantity_input)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        """Handle adding/removing items submission."""
+        """Handle das Hinzufügen und Entfernen von Items."""
         item_name = self.item_name_input.value
         try:
             quantity = int(self.quantity_input.value)
@@ -375,8 +376,10 @@ class ItemModal(discord.ui.Modal):
                 warehouses[self.warehouse_name][item_name] = warehouses[self.warehouse_name].get(item_name,
                                                                                                  0) + quantity
                 save_warehouses()  # Speichern nach der Änderung
-                await interaction.response.send_message(
-                    f"✅ {quantity}x '{item_name}' zum Lager '{self.warehouse_name}' hinzugefügt.")
+                # Sende Bestätigungsnachricht als DM
+                await interaction.user.send(
+                    f"✅ {quantity}x '{item_name}' wurde zum Lager '{self.warehouse_name}' hinzugefügt."
+                )
             else:
                 if item_name not in warehouses.get(self.warehouse_name, {}):
                     await interaction.response.send_message("⚠️ Item nicht im Lager gefunden.", ephemeral=True)
@@ -386,10 +389,12 @@ class ItemModal(discord.ui.Modal):
                     return
                 warehouses[self.warehouse_name][item_name] -= quantity
                 save_warehouses()  # Speichern nach der Änderung
-                await interaction.response.send_message(
-                    f"✅ {quantity}x '{item_name}' vom Lager '{self.warehouse_name}' entfernt.")
+                # Sende Bestätigungsnachricht als DM
+                await interaction.user.send(
+                    f"✅ {quantity}x '{item_name}' wurde vom Lager '{self.warehouse_name}' entfernt."
+                )
 
-            # Update the warehouse content message
+            # Update der Lagerinhaltsnachricht im Kanal (falls gewünscht)
             content = get_warehouse_content(self.warehouse_name)
             await interaction.message.edit(content=content, view=WarehouseView(self.warehouse_name))
 
@@ -534,12 +539,45 @@ async def fullclear(interaction: discord.Interaction) -> None:
     await confirmation_msg.edit(content=f"✅ {len(deleted)} Nachrichten wurden gelöscht.")
 
 
+# Pfad zur JSON-Datei für das Giveaway-Log
+GIVEAWAY_LOG_FILE = "giveaway_log.json"
+
+# Funktion zum Laden des Giveaway-Logs
+def load_giveaway_log() -> list:
+    if os.path.exists(GIVEAWAY_LOG_FILE):
+        with open(GIVEAWAY_LOG_FILE, "r") as file:
+            return json.load(file)
+    else:
+        return []
+
+# Funktion zum Speichern des Giveaway-Logs
+def save_giveaway_log(log_data: list) -> None:
+    with open(GIVEAWAY_LOG_FILE, "w") as file:
+        json.dump(log_data, file, indent=4)
+
+# Laden des bestehenden Logs beim Start
+giveaway_log = load_giveaway_log()
+
+# Funktion zum Loggen von Giveaway-Ereignissen
+def log_giveaway_event(action: str, prize: str, duration: str, winner: str, participants: list) -> None:
+    event = {
+        "action": action,
+        "prize": prize,
+        "duration": duration,
+        "winner": winner,
+        "participants": [user.name for user in participants],
+        "timestamp": discord.utils.utcnow().isoformat()
+    }
+    giveaway_log.append(event)
+    save_giveaway_log(giveaway_log)
+
 @bot.tree.command(name="giveaway", description="Starte ein Giveaway im aktuellen Kanal")
 async def giveaway(interaction: discord.Interaction, prize: str, duration: str) -> None:
     # Überprüfen der Berechtigungen
     if not await check_permissions(interaction, "giveaway"):
         await safe_send(interaction, "⚠️ Du hast keine Berechtigung, ein Giveaway zu starten.")
         return
+
     """
     Startet ein Giveaway im aktuellen Kanal und zeigt die verbleibende Zeit an.
 
@@ -601,6 +639,10 @@ async def giveaway(interaction: discord.Interaction, prize: str, duration: str) 
 
     winner = random.choice(users)
     await interaction.followup.send(f"🎉 **Herzlichen Glückwunsch** {winner.mention}! Du hast **{prize}** gewonnen! 🎉")
+
+    # Logge das Giveaway-Ereignis
+    log_giveaway_event("giveaway_ended", prize, duration, winner.name, users)
+
 
 @bot.tree.command(name="kick", description="Kicke einen Benutzer vom Server")
 async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "Kein Grund angegeben") -> None:
@@ -910,6 +952,36 @@ async def quote(interaction: discord.Interaction, message_id: str):
         await interaction.response.send_message(f'❌ Ein unerwarteter Fehler ist aufgetreten: {str(e)}', ephemeral=True)
 
 
+# Pfad zur JSON-Datei für das Log
+REACTION_LOG_FILE = "reaction_log.json"
+
+# Funktion zum Laden des Logins
+def load_reaction_log() -> list:
+    if os.path.exists(REACTION_LOG_FILE):
+        with open(REACTION_LOG_FILE, "r") as file:
+            return json.load(file)
+    else:
+        return []
+
+# Funktion zum Speichern des Logs
+def save_reaction_log(log_data: list) -> None:
+    with open(REACTION_LOG_FILE, "w") as file:
+        json.dump(log_data, file, indent=4)
+
+# Laden des bestehenden Logs beim Start
+reaction_log = load_reaction_log()
+
+# Funktion zum Loggen von Reaktionsereignissen
+def log_reaction_event(action: str, channel_id: int, emojis: list):
+    event = {
+        "action": action,
+        "channel_id": channel_id,
+        "emojis": emojis,
+        "timestamp": discord.utils.utcnow().isoformat()
+    }
+    reaction_log.append(event)
+    save_reaction_log(reaction_log)
+
 # Globaler Speicher für die Reaktionskanäle und Emojis
 reaction_channels = {}
 
@@ -927,6 +999,9 @@ async def react_all(interaction: discord.Interaction, channel: discord.TextChann
     # Speichern der Kanal- und Emoji-Informationen
     reaction_channels[channel.id] = emoji_list
 
+    # Loggen des Ereignisses
+    log_reaction_event("react_all", channel.id, emoji_list)
+
     await interaction.response.send_message(f'Bot wird jetzt auf Nachrichten in <#{channel.id}> mit {", ".join(emoji_list)} reagieren.', ephemeral=True)
 
 @bot.tree.command(name='stop_reacting', description='Stoppt das Reagieren des Bots auf Nachrichten im angegebenen Kanal.')
@@ -939,6 +1014,10 @@ async def stop_reacting(interaction: discord.Interaction, channel: discord.TextC
 
     if channel.id in reaction_channels:
         del reaction_channels[channel.id]  # Entferne den Kanal aus dem Speicher
+
+        # Loggen des Ereignisses
+        log_reaction_event("stop_reacting", channel.id, [])
+
         await interaction.response.send_message(f'Bot wird nicht mehr auf Nachrichten in <#{channel.id}> reagieren.', ephemeral=True)
     else:
         await interaction.response.send_message(f'Bot reagiert bereits nicht auf Nachrichten in <#{channel.id}>.', ephemeral=True)
@@ -955,6 +1034,8 @@ async def on_message(message):
         for emoji in emoji_list:
             try:
                 await message.add_reaction(emoji)
+                # Loggen des Ereignisses
+                log_reaction_event("add_reaction", message.channel.id, [emoji])
             except discord.HTTPException:
                 print(f'Konnte nicht auf die Nachricht mit {emoji} reagieren.')
 
@@ -990,6 +1071,38 @@ async def on_ready():
     await bot.tree.sync(guild=guild)
     print(f"Bot ist online als {bot.user}")
 
+# Pfad zur JSON-Datei für das Countdown-Log
+COUNTDOWN_LOG_FILE = "countdown_log.json"
+
+# Funktion zum Laden des Countdown-Logs
+def load_countdown_log() -> list:
+    if os.path.exists(COUNTDOWN_LOG_FILE):
+        with open(COUNTDOWN_LOG_FILE, "r") as file:
+            return json.load(file)
+    else:
+        return []
+
+# Funktion zum Speichern des Countdown-Logs
+def save_countdown_log(log_data: list) -> None:
+    with open(COUNTDOWN_LOG_FILE, "w") as file:
+        json.dump(log_data, file, indent=4)
+
+# Laden des bestehenden Logs beim Start
+countdown_log = load_countdown_log()
+
+# Funktion zum Loggen von Countdown-Ereignissen
+def log_countdown_event(action: str, user: str, seconds: int, start_time: str, end_time: str) -> None:
+    event = {
+        "action": action,
+        "user": user,
+        "seconds": seconds,
+        "start_time": start_time,
+        "end_time": end_time,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    countdown_log.append(event)
+    save_countdown_log(countdown_log)
+
 @bot.tree.command(name='countdown', description='Setze einen Countdown-Timer.')
 @app_commands.describe(seconds='Die Anzahl der Sekunden für den Countdown.')
 async def countdown(interaction: discord.Interaction, seconds: int):
@@ -1000,13 +1113,22 @@ async def countdown(interaction: discord.Interaction, seconds: int):
     # Initiale Nachricht
     await interaction.response.send_message(f"⏰ Countdown gestartet für {seconds} Sekunden...")
 
+    # Startzeit des Countdowns
+    start_time = datetime.utcnow().isoformat()
+
     # Countdown loop mit laufendem Update
     for remaining in range(seconds, 0, -1):
         await interaction.edit_original_response(content=f"⏳ Verbleibende Zeit: {remaining} Sekunden")
         await asyncio.sleep(1)
 
+    # Endzeit des Countdowns
+    end_time = datetime.utcnow().isoformat()
+
     # Sendet eine neue Nachricht, sobald der Countdown endet, und pingt den Benutzer
     await interaction.followup.send(f"⏰ Der Countdown ist abgelaufen! {interaction.user.mention}")
+
+    # Logge das Countdown-Ereignis
+    log_countdown_event("countdown_ended", interaction.user.name, seconds, start_time, end_time)
 
 # Setze die Sprache für Wikipedia auf Deutsch
 wikipedia.set_lang('de')
