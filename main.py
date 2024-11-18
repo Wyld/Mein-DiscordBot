@@ -1611,6 +1611,23 @@ async def slap(interaction: discord.Interaction, user: discord.Member):
 async def dance(interaction: discord.Interaction):
     await interaction.response.send_message(f"{interaction.user.mention} tanzt! 💃🕺")
 
+# JSON-Datei zum Speichern der Reaction Roles
+REACTION_ROLES_FILE = "reaction_roles.json"
+
+# Daten speichern
+def save_reaction_roles(data, filename=REACTION_ROLES_FILE):
+    with open(filename, "w") as file:
+        json.dump(data, file, indent=4)
+
+# Daten laden
+def load_reaction_roles(filename=REACTION_ROLES_FILE):
+    try:
+        with open(filename, "r") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return {}  # Gibt ein leeres Dict zurück, falls die Datei nicht existiert
+
+reaction_roles_data = load_reaction_roles()
 
 class ReactionRolesView(discord.ui.View):
     def __init__(self, roles: list[discord.Role], emojis: list[str]):
@@ -1673,10 +1690,39 @@ async def reactionroles(interaction: discord.Interaction, roles: str, emojis: st
 
     # Erstelle die View mit den Buttons
     view = ReactionRolesView(role_objects, emoji_list)
-    await interaction.response.send_message(
+    message = await interaction.response.send_message(
         "Reaktionsrollen: Klicke auf die Buttons, um Rollen zu erhalten oder zu entfernen.",
         view=view
     )
+
+    # Nachricht-ID speichern
+    message_id = (await message.original_response()).id
+    reaction_roles_data[str(message_id)] = {
+        "roles": [role.id for role in role_objects],
+        "emojis": emoji_list
+    }
+    save_reaction_roles(reaction_roles_data)
+
+@bot.event
+async def on_ready():
+    print(f"Bot ist bereit! Eingeloggt als {bot.user}")
+
+    # Reaction Roles wiederherstellen
+    for message_id, data in reaction_roles_data.items():
+        try:
+            channel = bot.get_channel(int(data.get("channel_id")))  # Optional, falls channel gespeichert
+            if not channel:
+                continue
+            message = await channel.fetch_message(int(message_id))
+            roles = [message.guild.get_role(role_id) for role_id in data["roles"]]
+            emojis = data["emojis"]
+
+            # View wiederherstellen
+            view = ReactionRolesView(roles, emojis)
+            await message.edit(view=view)
+        except Exception as e:
+            print(f"Fehler beim Wiederherstellen von Reaction Roles für Nachricht {message_id}: {e}")
+
 
 # Event: Synchronisiere den Command-Tree beim Start des Bots
 @bot.event
