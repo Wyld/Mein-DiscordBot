@@ -959,7 +959,14 @@ REACTION_LOG_FILE = "reaction_log.json"
 def load_reaction_log() -> list:
     if os.path.exists(REACTION_LOG_FILE):
         with open(REACTION_LOG_FILE, "r") as file:
-            return json.load(file)
+            try:
+                data = json.load(file)
+                if isinstance(data, list):
+                    return data
+                else:
+                    return []  # Rückgabe einer leeren Liste, wenn die Daten keine Liste sind
+            except json.JSONDecodeError:
+                return []  # Rückgabe einer leeren Liste, wenn die Datei nicht korrekt ist
     else:
         return []
 
@@ -1028,16 +1035,19 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # Überprüfen, ob der Kanal in der Liste der Reaktionskanäle ist
     if message.channel.id in reaction_channels:
         emoji_list = reaction_channels[message.channel.id]
         for emoji in emoji_list:
             try:
+                if emoji.isdigit():  # Wenn es eine Emoji-ID ist, versuche, sie zu einem Emoji zu machen
+                    emoji = discord.PartialEmoji(name=emoji)  # Umwandlung in ein validiertes Emoji
                 await message.add_reaction(emoji)
                 # Loggen des Ereignisses
                 log_reaction_event("add_reaction", message.channel.id, [emoji])
             except discord.HTTPException:
                 print(f'Konnte nicht auf die Nachricht mit {emoji} reagieren.')
+            except Exception as e:
+                print(f"Fehler beim Hinzufügen von Reaktionen: {e}")
 
 
 welcome_channels = {}  # Speichert die Begrüßungskanäle der Gilden
