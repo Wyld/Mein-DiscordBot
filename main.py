@@ -178,7 +178,28 @@ async def safe_send(interaction: discord.Interaction, message: str, ephemeral: b
     except discord.HTTPException as e:
         print(f"Error sending message: {e}")
 
-# Befehl zum Erstellen eines Bankkontos
+BANK_ACCOUNTS_FILE = "bank_accounts.json"
+
+def load_bank_accounts() -> Dict[str, int]:
+    """Lädt die Bankkonten aus der JSON-Datei."""
+    try:
+        with open(BANK_ACCOUNTS_FILE, "r") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return {}  # Falls die Datei nicht existiert, zurückgeben, dass keine Konten vorhanden sind
+    except json.JSONDecodeError:
+        print("⚠️ Fehler beim Laden der Bankkonten. Datei ist beschädigt.")
+        return {}
+
+def save_bank_accounts() -> None:
+    """Speichert die Bankkonten in der JSON-Datei."""
+    with open(BANK_ACCOUNTS_FILE, "w") as file:
+        json.dump(bank_accounts, file, indent=4)
+
+# Bankkonten laden
+bank_accounts = load_bank_accounts()
+
+# Beim Erstellen eines Bankkontos speichern
 @bot.tree.command(name="create_account", description="Creates a bank account with a name")
 async def create_account(interaction: discord.Interaction, account_name: str) -> None:
     if not await check_permissions(interaction, "create_account"):
@@ -190,39 +211,28 @@ async def create_account(interaction: discord.Interaction, account_name: str) ->
         return
 
     bank_accounts[account_name] = 0
+    save_bank_accounts()  # Nach der Erstellung speichern
     view = BankView(account_name, interaction.user.roles)
     await interaction.response.send_message(
         f"💳 Bankkonto '{account_name}' erfolgreich erstellt! Aktueller Kontostand: {bank_accounts[account_name]}€",
         view=view
     )
 
-class BankView(discord.ui.View):
-    def __init__(self, account_name: str, user_roles: list[discord.Role]) -> None:
-        super().__init__(timeout=180)
-        self.account_name = account_name
-        self.user_roles = user_roles
+# Beim Einzahlen speichern
+async def on_deposit(interaction: discord.Interaction, amount: int, account_name: str) -> None:
+    bank_accounts[account_name] += amount
+    save_bank_accounts()  # Nach der Einzahlung speichern
+    await interaction.response.send_message(
+        f"💵 {amount}€ in '{account_name}' eingezahlt! Neuer Kontostand: {bank_accounts[account_name]}€", ephemeral=True
+    )
 
-    @discord.ui.button(label="Einzahlen", style=discord.ButtonStyle.green)
-    async def deposit_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await check_permissions(interaction, "create_account"):
-            await interaction.response.send_message("⚠️ Du hast nicht die Berechtigung, diesen Befehl auszuführen.", ephemeral=True)
-            return
-        await self.open_deposit_modal(interaction)
-
-    @discord.ui.button(label="Abheben", style=discord.ButtonStyle.red)
-    async def withdraw_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await check_permissions(interaction, "create_account"):
-            await interaction.response.send_message("⚠️ Du hast nicht die Berechtigung, diesen Befehl auszuführen.", ephemeral=True)
-            return
-        await self.open_withdraw_modal(interaction)
-
-    async def open_deposit_modal(self, interaction: discord.Interaction) -> None:
-        modal = AmountModal("Einzahlen", self.account_name)
-        await interaction.response.send_modal(modal)
-
-    async def open_withdraw_modal(self, interaction: discord.Interaction) -> None:
-        modal = AmountModal("Abheben", self.account_name)
-        await interaction.response.send_modal(modal)
+# Beim Abheben speichern
+async def on_withdraw(interaction: discord.Interaction, amount: int, account_name: str) -> None:
+    bank_accounts[account_name] -= amount
+    save_bank_accounts()  # Nach dem Abheben speichern
+    await interaction.response.send_message(
+        f"💵 {amount}€ von '{account_name}' abgehoben! Neuer Kontostand: {bank_accounts[account_name]}€", ephemeral=True
+    )
 
 class AmountModal(discord.ui.Modal):
     def __init__(self, action: str, account_name: str) -> None:
@@ -239,18 +249,12 @@ class AmountModal(discord.ui.Modal):
                 return
 
             if self.title == "Einzahlen":
-                bank_accounts[self.account_name] += amount
-                await interaction.response.send_message(
-                    f"💵 {amount}€ in '{self.account_name}' eingezahlt! Neuer Kontostand: {bank_accounts[self.account_name]}€", ephemeral=True
-                )
+                await on_deposit(interaction, amount, self.account_name)
             else:
                 if bank_accounts[self.account_name] < amount:
                     await interaction.response.send_message("⚠️ Nicht genügend Mittel auf dem Konto.", ephemeral=True)
                     return
-                bank_accounts[self.account_name] -= amount
-                await interaction.response.send_message(
-                    f"💵 {amount}€ von '{self.account_name}' abgehoben! Neuer Kontostand: {bank_accounts[self.account_name]}€", ephemeral=True
-                )
+                await on_withdraw(interaction, amount, self.account_name)
 
             await interaction.message.edit(
                 content=f"💳 Kontostand von '{self.account_name}': {bank_accounts[self.account_name]}€", view=BankView(self.account_name, interaction.user.roles)
