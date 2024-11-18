@@ -1164,10 +1164,11 @@ async def create_role(interaction: discord.Interaction, role_name: str):
 # JSON-Datei zum Speichern der Log-Channels
 DATA_FILE = "log_channels.json"
 
-# Daten speichern
+# Speicher für Log-Daten, hier wird nur gespeichert, wenn sich etwas ändert
 def save_data(data, filename=DATA_FILE):
-    with open(filename, "w") as file:
-        json.dump(data, file, indent=4)
+    if data != load_data(filename):  # Wenn sich die Daten geändert haben
+        with open(filename, "w") as file:
+            json.dump(data, file, indent=4)
 
 # Daten laden
 def load_data(filename=DATA_FILE):
@@ -1190,12 +1191,15 @@ SPAM_LIMIT = 5  # Nachrichtenlimit
 @bot.tree.command(name='set_log_channel', description='Setzt den Kanal für alle Log-Nachrichten.')
 @app_commands.describe(channel="Der Kanal, in dem Logs gespeichert werden.")
 async def set_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    # Überprüfen, ob der Benutzer Administratorrechte hat
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("⚠️ Nur Administratoren können das tun.", ephemeral=True)
-        return  # Abbrechen, wenn der Benutzer keine Administratorrechte hat
+        return
 
-    # Den Log-Kanal setzen und speichern
+    # Verhindern, dass der Kanal mehrfach gesetzt wird
+    if log_channels.get(interaction.guild.id) == channel.id:
+        await interaction.response.send_message(f'Der Log-Kanal ist bereits auf {channel.mention} gesetzt.', ephemeral=True)
+        return
+
     log_channels[interaction.guild.id] = channel.id
     save_data(log_channels)  # Änderungen in der JSON-Datei speichern
     await interaction.response.send_message(f'Log-Kanal auf {channel.mention} gesetzt!', ephemeral=True)
@@ -1218,16 +1222,20 @@ async def send_embed_log(guild_id, title, description, color=0x3498db):
     await log_channel.send(embed=embed)
 
 @bot.event
-async def on_message(message):
-    if message.author.bot:
-        return  # Ignoriere Bot-Nachrichten
+async def on_message_edit(before: discord.Message, after: discord.Message):
+    # Ignoriere Bearbeitungen von Bot-Nachrichten
+    if after.author.bot:
+        return
 
-    # Beispiel-Log für empfangene Nachrichten
-    await send_embed_log(
-        guild_id=message.guild.id,
-        title="Nachricht empfangen",
-        description=f"Von: {message.author}\nIn: {message.channel.mention}\nInhalt: {message.content}"
-    )
+    # Vergleiche die Inhalte der Nachrichten und nur bei tatsächlichen Änderungen loggen
+    if before.content != after.content:
+        # Sende Log mit den Änderungen
+        await send_embed_log(
+            guild_id=after.guild.id,
+            title="Nachricht bearbeitet",
+            description=f"Von: {after.author}\nIn: {after.channel.mention}\nVorher: {before.content}\nNachher: {after.content}"
+        )
+
 
     # Spam-Erkennung oder andere Logik hier einfügen
     await bot.process_commands(message)
@@ -1639,22 +1647,22 @@ async def on_message(message):
         log_channel_id = log_channels.get(message.guild.id)
 
         # Verhindern, dass Nachrichten im Log-Kanal verarbeitet werden
-        if message.channel.id == log_channels.get(message.guild.id):
+        if message.channel.id == log_channel_id:
             return  # Ignoriere Nachrichten im Log-Kanal
 
-        # Spam-Überprüfung für Links in Nachrichten
+        # Spam-Überprüfung für Links in Nachrichten (nur für echte Benutzer)
         if "http" in message.content or "www" in message.content:
-            log_channel_id = log_channels.get(message.guild.id)
+            if message.author.bot:
+                return  # Bots sollen keine Links loggen
+            # Nur wenn es sich um einen Link handelt und nicht bereits eine Nachricht für den User gesendet wurde
             if log_channel_id:
                 log_channel = bot.get_channel(log_channel_id)
                 if log_channel:
-                    if message.author.bot:
-                        return  # Bots sollen keine Links loggen
                     await log_channel.send(f"{message.author.mention} hat einen Link gepostet: {message.content}")
 
         # Spam-Überprüfung: Anzahl der Nachrichten in einem kurzen Zeitfenster
         if message.author.bot:
-            return  # Bots sollen nicht auf Spam überprüft werden
+            return  # Ignoriere Nachrichten von Bots für die Spam-Überprüfung
 
         current_time = time.time()
         message_history[message.author.id].append(current_time)
@@ -1665,12 +1673,13 @@ async def on_message(message):
 
         # Wenn mehr als das Limit an Nachrichten in kurzer Zeit gesendet wurden, als Spam markieren
         if len(message_history[message.author.id]) > SPAM_LIMIT:
-            log_channel_id = log_channels.get(message.guild.id)
-            if log_channel_id:
-                log_channel = bot.get_channel(log_channel_id)
-                if log_channel:
-                    await log_channel.send(f"⚠️ {message.author.mention} hat möglicherweise Spam gesendet! "
-                                           f"Mehr als {SPAM_LIMIT} Nachrichten in {SPAM_TIME_WINDOW} Sekunden.")
+            # Hier eine Überprüfung, ob das Ereignis bereits protokolliert wurde (verhindert redundante Logs)
+            if not any(entry > current_time - SPAM_TIME_WINDOW for entry in message_history[message.author.id]):
+                if log_channel_id:
+                    log_channel = bot.get_channel(log_channel_id)
+                    if log_channel:
+                        await log_channel.send(f"⚠️ {message.author.mention} hat möglicherweise Spam gesendet! "
+                                               f"Mehr als {SPAM_LIMIT} Nachrichten in {SPAM_TIME_WINDOW} Sekunden.")
             return  # Stoppe die Nachricht, wenn sie Spam ist
 
         # Stelle sicher, dass andere Commands noch verarbeitet werden
@@ -1679,7 +1688,7 @@ async def on_message(message):
         # Wenn die Nachricht in einer DM gesendet wurde, logge dies (oder ignoriere sie)
         print(f"Nachricht in einer DM von {message.author.name}: {message.content}")
         return  # Verarbeite DMs nicht weiter
-
+    
 # Event: Event Handler
 @bot.event
 async def on_error(event, *args, **kwargs):
