@@ -1103,9 +1103,6 @@ def load_data(filename=DATA_FILE):
 # Log-Channels beim Start laden
 log_channels = load_data()
 
-# Log-Channels beim Start laden
-log_channels = load_data()
-
 
 # Speicher für Nachrichten (um Spam zu überwachen)
 message_history = defaultdict(list)  # key: user_id, value: list of timestamps of messages
