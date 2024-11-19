@@ -1082,7 +1082,6 @@ DATA_FILE = "log_channels.json"
 
 # Speicher für Log-Daten, hier wird nur gespeichert, wenn sich etwas ändert
 def save_data(data, filename=DATA_FILE):
-    # Nur speichern, wenn sich die Daten geändert haben
     current_data = load_data(filename)
     if data != current_data:  # Wenn sich die Daten geändert haben
         with open(filename, "w") as file:
@@ -1092,13 +1091,15 @@ def save_data(data, filename=DATA_FILE):
 # Daten laden
 def load_data(filename=DATA_FILE):
     try:
+        if not os.path.exists(filename):
+            return {}
         with open(filename, "r") as file:
             return json.load(file)
     except FileNotFoundError:
-        return {}  # Gibt ein leeres Dict zurück, falls die Datei nicht existiert
+        return {}
     except json.JSONDecodeError:
         print("⚠️ Fehler beim Laden der Log-Daten: Die Datei ist beschädigt.")
-        return {}  # Falls ein Fehler beim Parsen der JSON-Datei auftritt
+        return {}
 
 # Log-Channels beim Start laden
 log_channels = load_data()
