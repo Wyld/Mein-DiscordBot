@@ -1080,7 +1080,7 @@ async def create_role(interaction: discord.Interaction, role_name: str):
 # JSON-Datei zum Speichern der Log-Channels
 DATA_FILE = "log_channels.json"
 
-
+# Speichern der Daten in der JSON-Datei
 def save_data(data, filename=DATA_FILE):
     """Speichert die Log-Daten in einer JSON-Datei, wenn sich die Daten geändert haben."""
     try:
@@ -1091,7 +1091,6 @@ def save_data(data, filename=DATA_FILE):
             print(f"Log-Daten in {filename} gespeichert.")
     except Exception as e:
         print(f"Fehler beim Speichern der Daten: {e}")
-
 
 # Daten laden
 def load_data(filename=DATA_FILE):
@@ -1114,6 +1113,7 @@ SPAM_TIME_WINDOW = 10  # Sekunden
 SPAM_LIMIT = 5  # Nachrichtenlimit
 
 
+# Log-Kanal setzen
 @bot.tree.command(name='set_log_channel', description='Setzt den Kanal für alle Log-Nachrichten.')
 @app_commands.describe(channel="Der Kanal, in dem Logs gespeichert werden.")
 async def set_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
@@ -1128,7 +1128,7 @@ async def set_log_channel(interaction: discord.Interaction, channel: discord.Tex
     save_data(log_channels)  # Änderungen in der JSON-Datei speichern
     await interaction.response.send_message(f'Log-Kanal auf {channel.mention} gesetzt!', ephemeral=True)
 
-
+# Log-Nachricht senden
 async def send_embed_log(guild_id, title, description, color=0x3498db):
     """Sendet eine Log-Nachricht an den festgelegten Log-Kanal."""
     # Prüfen, ob ein Log-Kanal gesetzt ist
@@ -1147,16 +1147,6 @@ async def send_embed_log(guild_id, title, description, color=0x3498db):
     embed = discord.Embed(title=title, description=description, color=color)
     await log_channel.send(embed=embed)
 
-
-# Event, das beim Start des Bots ausgelöst wird
-@bot.event
-async def on_ready():
-    global log_channels
-    log_channels = load_data()  # Lädt die Log-Daten beim Start des Bots
-    print("Bot ist bereit und Log-Kanäle wurden geladen:", log_channels)
-
-    if not log_channels:
-        print("⚠️ Kein Log-Kanal konfiguriert.")
 
 @bot.event
 async def on_message_edit(before: discord.Message, after: discord.Message):
