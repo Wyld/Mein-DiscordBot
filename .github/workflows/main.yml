@@ -14,40 +14,46 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2. Python einrichten
+      # 2. GitHub Token einrichten (für den Zugriff auf private Repositories)
+      - name: Set up GitHub Token
+        env:
+          GITHUB_TOKEN: ${{ secrets.LOG_TOKEN }}
+        run: |
+          echo "Setting up GitHub token for access to the repository"
+
+      # 3. Python einrichten
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      # 3. Abhängigkeiten installieren
+      # 4. Abhängigkeiten installieren
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 4. `log_channels.json` Datei aus dem GitHub Repository herunterladen
+      # 5. `log_channels.json` Datei aus dem GitHub Repository herunterladen
       - name: Load log_channels.json from GitHub repository
         run: |
           curl -H "Authorization: token ${{ secrets.LOG_TOKEN }}" \
                -L https://api.github.com/repos/Wyld/Mein-DiscordBot/contents/log_channels.json \
                -o log_channels.json
-        continue-on-error: true  # Falls die Datei nicht existiert, weiterfahren
+          cat log_channels.json  # Überprüfen, ob die Datei korrekt gespeichert wurde
 
-      # 5. Discord Bot ausführen
+      # 6. Discord Bot ausführen
       - name: Run Discord Bot
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
         run: |
-          python main.py  # Hier wird dein Bot gestartet, der mit der `log_channels.json` arbeitet
+          python main.py
 
-      # 6. Änderungen an `log_channels.json` speichern (falls notwendig)
+      # 7. Änderungen an `log_channels.json` speichern (falls notwendig)
       - name: Save log_channels.json to GitHub repository
         run: |
-          # Falls sich die log_channels.json geändert hat, speichern wir sie wieder
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           git add log_channels.json
           git commit -m "Update log_channels.json"
           git push https://github.com/${{ secrets.LOG_TOKEN }}@github.com/Wyld/Mein-DiscordBot.git HEAD:main
-        continue-on-error: true  # Falls keine Änderungen vorgenommen wurden, kann der Schritt übersprungen werden
+        continue-on-error: true  # Falls keine Änderungen vorgenommen wurden, wird dieser Schritt übersprungen
