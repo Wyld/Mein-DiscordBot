@@ -29,6 +29,28 @@ from datetime import datetime
 
 keep_alive()
 
+# JSON-Datei für die Speicherung der Log-Kanäle
+DATA_FILE = "log_channels.json"
+
+# Log-Channels laden und speichern
+def save_data(data, filename=DATA_FILE):
+    try:
+        with open(filename, "w") as file:
+            json.dump(data, file, indent=4)
+        print(f"Log-Daten in {filename} gespeichert.")
+    except Exception as e:
+        print(f"Fehler beim Speichern der Daten: {e}")
+
+def load_data(filename=DATA_FILE):
+    try:
+        with open(filename, "r") as file:
+            return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        print(f"⚠️ Datei {filename} nicht gefunden oder beschädigt. Standardwerte verwenden.")
+        return {}
+
+log_channels = load_data()
+
 # Lade Umgebungsvariablen aus .env-Datei
 load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
@@ -1077,97 +1099,47 @@ async def create_role(interaction: discord.Interaction, role_name: str):
     await guild.create_role(name=role_name)
     await interaction.response.send_message(f'Die Rolle "{role_name}" wurde erstellt!')
 
-# JSON-Datei zum Speichern der Log-Channels
-DATA_FILE = "log_channels.json"
+# Nachrichtenspeicher für Spam-Erkennung
+message_history = defaultdict(list)
+SPAM_TIME_WINDOW = 10  # Sekunden
+SPAM_LIMIT = 5  # Nachrichtenlimit
 
-# Speichern der Daten in der JSON-Datei
-def save_data(data, filename=DATA_FILE):
-    """Speichert die Log-Daten in einer JSON-Datei, wenn sich die Daten geändert haben."""
-    try:
-        current_data = load_data(filename)
-        if data != current_data:
-            with open(filename, "w") as file:
-                json.dump(data, file, indent=4)
-            print(f"Log-Daten in {filename} gespeichert.")
-        else:
-            print(f"Keine Änderungen an den Log-Daten. Nichts wurde gespeichert.")
-    except Exception as e:
-        print(f"Fehler beim Speichern der Daten: {e}")
+@bot.event
+async def on_ready():
+    print(f"Eingeloggter Bot: {bot.user.name}")
+    for guild in bot.guilds:
+        guild_id = str(guild.id)
+        if guild_id in log_channels:
+            log_channel = bot.get_channel(log_channels[guild_id])
+            if log_channel:
+                print(f"Log-Kanal {log_channel.name} ({log_channel.id}) für {guild.name} aktiviert.")
+            else:
+                log_channels.pop(guild_id, None)
+                save_data(log_channels)
 
-# Daten laden
-def load_data(filename=DATA_FILE):
-    try:
-        with open(filename, "r") as file:
-            data = json.load(file)
-            print(f"Geladene Log-Daten: {data}")  # Debugging-Ausgabe
-            return data
-    except FileNotFoundError:
-        print(f"Die Datei {filename} wurde nicht gefunden. Erstelle leere Daten.")  # Debugging-Ausgabe
-        return {}  # Gibt ein leeres Dict zurück, falls die Datei nicht existiert
-    except json.JSONDecodeError:
-        print("⚠️ Fehler beim Laden der Log-Daten: Die Datei ist beschädigt.")  # Debugging-Ausgabe
-        return {}  # Falls ein Fehler beim Parsen der JSON-Datei auftritt
-
-# Log-Channels beim Start laden
-log_channels = load_data()
-
-
-# Log-Kanal setzen
-@bot.tree.command(name='set_log_channel', description='Setzt den Kanal für alle Log-Nachrichten.')
+# Command: Log-Kanal setzen
+@bot.tree.command(name="set_log_channel", description="Setzt den Kanal für alle Log-Nachrichten.")
 @app_commands.describe(channel="Der Kanal, in dem Logs gespeichert werden.")
 async def set_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
-    """Setzt den Log-Kanal für den Server und speichert die Änderung in einer JSON-Datei."""
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("⚠️ Nur Administratoren können das tun.", ephemeral=True)
         return
-
-    # Log-Kanal für diese Guild-ID setzen
-    guild_id = str(interaction.guild.id)  # Verwende str, um sicherzustellen, dass es eine Zeichenkette ist
+    guild_id = str(interaction.guild.id)
     log_channels[guild_id] = channel.id
-    save_data(log_channels)  # Änderungen in der JSON-Datei speichern
-    await interaction.response.send_message(f'Log-Kanal auf {channel.mention} gesetzt!', ephemeral=True)
+    save_data(log_channels)
+    await interaction.response.send_message(f"Log-Kanal auf {channel.mention} gesetzt!", ephemeral=True)
 
 # Log-Nachricht senden
 async def send_embed_log(guild_id, title, description, color=0x3498db):
-    """Sendet eine Log-Nachricht an den festgelegten Log-Kanal."""
-    # Prüfen, ob ein Log-Kanal gesetzt ist
-    if guild_id not in log_channels:
-        print(f"⚠️ Kein Log-Kanal für Guild-ID {guild_id} gesetzt!")
-        return
-
-    # Log-Channel-ID holen und Kanal abrufen
-    log_channel_id = log_channels[guild_id]
-    log_channel = bot.get_channel(log_channel_id)
-    if log_channel is None:
-        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden!")
-        return
-
-    # Embed senden
-    embed = discord.Embed(title=title, description=description, color=color)
-    try:
-        await log_channel.send(embed=embed)
-    except Exception as e:
-        print(f"Fehler beim Senden der Log-Nachricht: {e}")
-
-@bot.event
-async def on_message_edit(before: discord.Message, after: discord.Message):
-    # Ignoriere Bearbeitungen von Bot-Nachrichten
-    if after.author.bot:
-        return
-
-    # Vergleiche die Inhalte der Nachrichten und nur bei tatsächlichen Änderungen loggen
-    if before.content != after.content:
-        # Sende Log mit den Änderungen
-        await send_embed_log(
-            guild_id=after.guild.id,
-            title="Nachricht bearbeitet",
-            description=f"Von: {after.author}\nIn: {after.channel.mention}\nVorher: {before.content}\nNachher: {after.content}"
-        )
-
-
-    # Spam-Erkennung oder andere Logik hier einfügen
-    await bot.process_commands(message)
-
+    log_channel_id = log_channels.get(str(guild_id))
+    if log_channel_id:
+        log_channel = bot.get_channel(log_channel_id)
+        if log_channel:
+            embed = discord.Embed(title=title, description=description, color=color)
+            try:
+                await log_channel.send(embed=embed)
+            except Exception as e:
+                print(f"Fehler beim Senden der Log-Nachricht: {e}")
 
 # Event: Nachricht gelöscht
 @bot.event
@@ -1525,6 +1497,23 @@ async def on_guild_member_update(before: discord.Member, after: discord.Member):
             elif before.premium_since is not None and after.premium_since is None:
                 await log_channel.send(f"{after.mention} hat den Serverboost zurückgenommen.")
 
+# Event: Voice-State Update
+@bot.event
+async def on_voice_state_update(member, before, after):
+    if before.channel != after.channel:
+        if after.channel:
+            await send_embed_log(
+                guild_id=member.guild.id,
+                title="Voice-Channel betreten",
+                description=f"{member.mention} hat {after.channel.mention} betreten."
+            )
+        elif before.channel:
+            await send_embed_log(
+                guild_id=member.guild.id,
+                title="Voice-Channel verlassen",
+                description=f"{member.mention} hat {before.channel.mention} verlassen."
+            )
+
 # Servername
 @bot.event
 async def on_guild_update(before: discord.Guild, after: discord.Guild):
@@ -1537,8 +1526,6 @@ async def on_guild_update(before: discord.Guild, after: discord.Guild):
                 member = after.get_member(after.owner_id)  # Der Besitzer hat möglicherweise den Namen geändert
                 if member:
                     await log_channel.send(f"Servername geändert: {before.name} → {after.name} durch {member.mention}")
-
-
 
 # Server Einstellungen
 @bot.event
@@ -1566,76 +1553,32 @@ async def on_guild_update(before: discord.Guild, after: discord.Guild):
             # Hier kannst du den Administrator als Verantwortlichen markieren
             await log_channel.send(f"Änderung durchgeführt von **{after.owner.mention}** (Server-Inhaber) oder durch einen Administrator.")
 
-
-# Speicher für Nachrichten (um Spam zu überwachen)
-message_history = defaultdict(list)  # key: user_id, value: list of timestamps of messages
-SPAM_TIME_WINDOW = 10  # Sekunden
-SPAM_LIMIT = 5  # Nachrichtenlimit
-
+# Event: Spam-Erkennung
 @bot.event
 async def on_message(message):
-    # Überprüfen, ob die Nachricht in einem Server gesendet wurde
-    if message.guild is not None:
+    if message.guild:
         log_channel_id = log_channels.get(message.guild.id)
-
-        # Verhindern, dass Nachrichten im Log-Kanal verarbeitet werden
         if message.channel.id == log_channel_id:
-            return  # Ignoriere Nachrichten im Log-Kanal
-
-        # Spam-Überprüfung für Links in Nachrichten (nur für echte Benutzer)
-        if "http" in message.content or "www" in message.content:
-            if message.author.bot:
-                return  # Bots sollen keine Links loggen
-            # Nur wenn es sich um einen Link handelt und nicht bereits eine Nachricht für den User gesendet wurde
-            if log_channel_id:
-                log_channel = bot.get_channel(log_channel_id)
-                if log_channel:
-                    await log_channel.send(f"{message.author.mention} hat einen Link gepostet: {message.content}")
-
-        # Spam-Überprüfung: Anzahl der Nachrichten in einem kurzen Zeitfenster
-        if message.author.bot:
-            return  # Ignoriere Nachrichten von Bots für die Spam-Überprüfung
+            return
 
         current_time = time.time()
         message_history[message.author.id].append(current_time)
+        message_history[message.author.id] = [
+            timestamp for timestamp in message_history[message.author.id]
+            if current_time - timestamp <= SPAM_TIME_WINDOW
+        ]
 
-        # Entfernen von Nachrichten, die älter als das Zeitfenster sind
-        message_history[message.author.id] = [timestamp for timestamp in message_history[message.author.id]
-                                               if current_time - timestamp <= SPAM_TIME_WINDOW]
-
-        # Wenn mehr als das Limit an Nachrichten in kurzer Zeit gesendet wurden, als Spam markieren
         if len(message_history[message.author.id]) > SPAM_LIMIT:
-            # Hier eine Überprüfung, ob das Ereignis bereits protokolliert wurde (verhindert redundante Logs)
-            if not any(entry > current_time - SPAM_TIME_WINDOW for entry in message_history[message.author.id]):
-                if log_channel_id:
-                    log_channel = bot.get_channel(log_channel_id)
-                    if log_channel:
-                        await log_channel.send(f"⚠️ {message.author.mention} hat möglicherweise Spam gesendet! "
-                                               f"Mehr als {SPAM_LIMIT} Nachrichten in {SPAM_TIME_WINDOW} Sekunden.")
-            return  # Stoppe die Nachricht, wenn sie Spam ist
-
-        # Stelle sicher, dass andere Commands noch verarbeitet werden
+            await send_embed_log(
+                guild_id=message.guild.id,
+                title="Spam erkannt",
+                description=f"{message.author.mention} hat möglicherweise Spam gesendet!"
+            )
         await bot.process_commands(message)
-    else:
-        # Wenn die Nachricht in einer DM gesendet wurde, logge dies (oder ignoriere sie)
-        print(f"Nachricht in einer DM von {message.author.name}: {message.content}")
-        return  # Verarbeite DMs nicht weiter
 
-
-# Event: Event Handler
+# Event: Fehlerbehandlung
 @bot.event
 async def on_error(event, *args, **kwargs):
-    log_channel_id = log_channels.get(args[0].guild.id) if args and hasattr(args[0], 'guild') else None
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            await send_embed_log(
-                log_channel,
-                title="⚠️ Fehler",
-                description=f"Ein Fehler ist im Event **{event}** aufgetreten.\n```{traceback.format_exc()}```",
-                color=0xe74c3c  # Rot für Fehler
-            )
-    # Fehler auch in der Konsole ausgeben
     print(f"Fehler im Event {event}: {traceback.format_exc()}")
 
 # /lockdown Command (nur für Administratoren)
