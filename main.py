@@ -29,28 +29,6 @@ from datetime import datetime
 
 keep_alive()
 
-# JSON-Datei für die Speicherung der Log-Kanäle
-DATA_FILE = "log_channels.json"
-
-# Log-Channels laden und speichern
-def save_data(data, filename=DATA_FILE):
-    try:
-        with open(filename, "w") as file:
-            json.dump(data, file, indent=4)
-        print(f"Log-Daten in {filename} gespeichert.")
-    except Exception as e:
-        print(f"Fehler beim Speichern der Daten: {e}")
-
-def load_data(filename=DATA_FILE):
-    try:
-        with open(filename, "r") as file:
-            return json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        print(f"⚠️ Datei {filename} nicht gefunden oder beschädigt. Standardwerte verwenden.")
-        return {}
-
-log_channels = load_data()
-
 # Lade Umgebungsvariablen aus .env-Datei
 load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
@@ -1099,344 +1077,749 @@ async def create_role(interaction: discord.Interaction, role_name: str):
     await guild.create_role(name=role_name)
     await interaction.response.send_message(f'Die Rolle "{role_name}" wurde erstellt!')
 
-# Nachrichtenspeicher für Spam-Erkennung
-message_history = defaultdict(list)
-SPAM_TIME_WINDOW = 10  # Sekunden
-SPAM_LIMIT = 5  # Nachrichtenlimit
+# JSON-Datei für die Speicherung der Log-Kanäle
+DATA_FILE = "log_channels.json"
+
+# Log-Channels laden und speichern
+def save_data(data, filename=DATA_FILE):
+    try:
+        with open(filename, "w") as file:
+            json.dump(data, file, indent=4)
+        print(f"Log-Daten in {filename} gespeichert.")
+    except Exception as e:
+        print(f"Fehler beim Speichern der Daten: {e}")
+
+def load_data(filename=DATA_FILE):
+    try:
+        with open(filename, "r") as file:
+            return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        print(f"⚠️ Datei {filename} nicht gefunden oder beschädigt. Standardwerte verwenden.")
+        return {}
+
+
+log_channels = load_data()
 
 @bot.event
 async def on_ready():
-    print(f"Eingeloggter Bot: {bot.user.name}")
-    for guild in bot.guilds:
-        guild_id = str(guild.id)
-        if guild_id in log_channels:
-            log_channel = bot.get_channel(log_channels[guild_id])
-            if log_channel:
-                print(f"Log-Kanal {log_channel.name} ({log_channel.id}) für {guild.name} aktiviert.")
-            else:
-                log_channels.pop(guild_id, None)
-                save_data(log_channels)
+    print("Bot ist bereit!")
+    guild_id = "1300469150107566100"  # Setze die ID deiner Guild
+    log_channel_id = log_channels.get(guild_id)
+    if log_channel_id:
+        log_channel = bot.get_channel(log_channel_id)
+        if log_channel:
+            try:
+                await log_channel.send("✅ Testnachricht: Bot kann in diesen Kanal senden.")
+                print(f"✅ Nachricht an {log_channel.name} gesendet.")
+            except Exception as e:
+                print(f"⚠️ Fehler beim Senden der Nachricht: {e}")
+        else:
+            print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+    else:
+        print("⚠️ Kein Log-Kanal gesetzt.")
 
 # Command: Log-Kanal setzen
 @bot.tree.command(name="set_log_channel", description="Setzt den Kanal für alle Log-Nachrichten.")
 @app_commands.describe(channel="Der Kanal, in dem Logs gespeichert werden.")
 async def set_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    """
+    Setzt den Log-Kanal für einen Server und speichert die Änderung in einer JSON-Datei.
+    """
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("⚠️ Nur Administratoren können das tun.", ephemeral=True)
         return
-    guild_id = str(interaction.guild.id)
-    log_channels[guild_id] = channel.id
-    save_data(log_channels)
-    await interaction.response.send_message(f"Log-Kanal auf {channel.mention} gesetzt!", ephemeral=True)
+
+    guild_id = str(interaction.guild.id)  # Guild-ID als Zeichenkette speichern
+    log_channels[guild_id] = channel.id  # Log-Kanal für die Guild speichern
+    save_data(log_channels)  # Änderungen in der JSON-Datei sichern
+
+    print(f"Log-Kanal für Guild {guild_id} gesetzt auf Kanal-ID {channel.id}")
+    await interaction.response.send_message(f"Log-Kanal erfolgreich auf {channel.mention} gesetzt!", ephemeral=True)
+
 
 # Log-Nachricht senden
 async def send_embed_log(guild_id, title, description, color=0x3498db):
-    log_channel_id = log_channels.get(str(guild_id))
+    """
+    Sendet eine Log-Nachricht an den festgelegten Log-Kanal einer Guild.
+    """
+    log_channel_id = log_channels.get(str(guild_id))  # Kanal-ID für die Guild holen
     if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
+        log_channel = bot.get_channel(log_channel_id)  # Kanalobjekt holen
         if log_channel:
             embed = discord.Embed(title=title, description=description, color=color)
             try:
-                await log_channel.send(embed=embed)
+                await log_channel.send(embed=embed)  # Nachricht senden
+                print(f"Log-Nachricht an Kanal {log_channel.name} ({log_channel.id}) gesendet.")
             except Exception as e:
-                print(f"Fehler beim Senden der Log-Nachricht: {e}")
+                print(f"⚠️ Fehler beim Senden der Log-Nachricht: {e}")
+        else:
+            print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+    else:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {guild_id} gesetzt.")
 
 # Event: Nachricht gelöscht
 @bot.event
 async def on_message_delete(message: discord.Message):
-    if message.channel.id == log_channels.get(message.guild.id):  # Verhindere Wiederholungen im Log-Kanal
-        return
-    log_channel_id = log_channels.get(message.guild.id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            await log_channel.send(f"Nachricht gelöscht von {message.author.mention} in {message.channel.mention}: {message.content}")
-
-# Event: Nachricht bearbeitet
-@bot.event
-async def on_message_edit(before: discord.Message, after: discord.Message):
-    if after.channel.id == log_channels.get(after.guild.id):  # Verhindere Wiederholungen im Log-Kanal
-        return
-    log_channel_id = log_channels.get(after.guild.id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            await log_channel.send(f"Nachricht bearbeitet von {after.author.mention} in {after.channel.mention}.\nVorher: {before.content}\nNachher: {after.content}")
-
-# Event: Timeout
-@bot.event
-async def on_member_update(before, after):
-    log_channel_id = log_channels.get(after.guild.id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            if before.timed_out_until != after.timed_out_until:
-                async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_update):
-                    if after.timed_out_until:
-                        await log_channel.send(f"⏱️ **Timeout:** {after.mention}\n🔧 **Durchgeführt von:** {entry.user.mention}")
-                    else:
-                        await log_channel.send(f"⏱️ **Timeout entfernt:** {after.mention}\n🔧 **Entfernt von:** {entry.user.mention}")
-                    break
-
-# Event: Ban
-@bot.event
-async def on_member_ban(guild, user):
-    log_channel_id = log_channels.get(guild.id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.ban):
-                await log_channel.send(f"🔨 **Ban:** {user.mention}\n🔧 **Durchgeführt von:** {entry.user.mention}")
-                break
-
-# Event: Kick
-@bot.event
-async def on_member_kick(member):
-    log_channel_id = log_channels.get(member.guild.id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            async for entry in member.guild.audit_logs(limit=1, action=discord.AuditLogAction.kick):
-                await log_channel.send(f"👢 **Kick:** {member.mention}\n🔧 **Durchgeführt von:** {entry.user.mention}")
-                break
-
-# Event: Unbans
-@bot.event
-async def on_member_unban(guild: discord.Guild, user: discord.User):
-    log_channel_id = log_channels.get(guild.id)
+    print(f"Event ausgelöst: Nachricht gelöscht von {message.author} in {message.channel.name}")
+    log_channel_id = log_channels.get(str(message.guild.id))
     if log_channel_id:
         log_channel = bot.get_channel(log_channel_id)
         if log_channel:
             try:
-                # Audit Logs überprüfen, um den Verantwortlichen zu ermitteln
-                async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.unban):
-                    if entry.target.id == user.id:  # Sicherstellen, dass der Log-Eintrag zum richtigen User gehört
-                        await log_channel.send(
-                            f"🔓 **Unban:** {user.mention} wurde vom Server entbannt.\n"
-                            f"🔧 **Durchgeführt von:** {entry.user.mention}\n"
-                            f"📅 **Zeitpunkt:** <t:{int(entry.created_at.timestamp())}:f>"
-                        )
-                        break
-                else:
-                    # Falls kein Audit Log gefunden wird
-                    await log_channel.send(f"🔓 **Unban:** {user.mention} wurde vom Server entbannt, aber der Verantwortliche konnte nicht ermittelt werden.")
-            except Exception as e:
-                # Fehler beim Lesen der Audit Logs abfangen
-                print(f"Fehler beim Verarbeiten des Unban-Events: {e}")
                 await log_channel.send(
-                    f"⚠️ **Unban:** {user.mention} wurde vom Server entbannt, aber es gab einen Fehler beim Abrufen der Verantwortlichen."
+                    f"Nachricht gelöscht von {message.author.mention} in {message.channel.mention}: {message.content}"
                 )
+                print("✅ Log gesendet.")
+            except Exception as e:
+                print(f"⚠️ Fehler beim Senden der Nachricht: {e}")
+        else:
+            print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+
+
+@bot.event
+async def on_message_edit(before: discord.Message, after: discord.Message):
+    """
+    Event: Nachricht bearbeitet.
+    Protokolliert Änderungen an Nachrichten und sendet eine Log-Nachricht in den Log-Kanal.
+    """
+    print(f"Event ausgelöst: Nachricht bearbeitet von {after.author} in {after.channel.name}.")
+
+    # Verhindere Wiederholungen im Log-Kanal selbst
+    log_channel_id = log_channels.get(str(after.guild.id))
+    if log_channel_id == after.channel.id:
+        print("Bearbeitung ignoriert: Nachricht wurde im Log-Kanal bearbeitet.")
+        return
+
+    # Prüfen, ob die Nachricht tatsächlich geändert wurde
+    if before.content == after.content:
+        print("Bearbeitung ignoriert: Inhalt wurde nicht verändert.")
+        return
+
+    # Holen des Log-Kanals
+    if log_channel_id:
+        log_channel = bot.get_channel(log_channel_id)
+        if log_channel:
+            # Log-Nachricht erstellen und senden
+            try:
+                await log_channel.send(
+                    f"**Nachricht bearbeitet**\n"
+                    f"**Autor:** {after.author.mention}\n"
+                    f"**Kanal:** {after.channel.mention}\n"
+                    f"**Vorher:** {before.content}\n"
+                    f"**Nachher:** {after.content}"
+                )
+                print(f"✅ Nachricht bearbeitet: Log in {log_channel.name} ({log_channel.id}) gesendet.")
+            except Exception as e:
+                print(f"⚠️ Fehler beim Senden der Log-Nachricht: {e}")
+        else:
+            print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+    else:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {after.guild.id} gesetzt.")
+
+
+@bot.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    """
+    Event: Timeout gesetzt oder entfernt.
+    Protokolliert Timeout-Änderungen eines Mitglieds und sendet eine Log-Nachricht in den Log-Kanal.
+    """
+    print(f"Event ausgelöst: Mitglied aktualisiert ({after}).")
+
+    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
+    log_channel_id = log_channels.get(str(after.guild.id))
+    if not log_channel_id:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {after.guild.id} gesetzt.")
+        return
+
+    # Kanalobjekt holen
+    log_channel = bot.get_channel(log_channel_id)
+    if not log_channel:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+        return
+
+    # Timeout-Änderung prüfen
+    if before.timed_out_until != after.timed_out_until:
+        print(f"Timeout geändert für {after}. Vorher: {before.timed_out_until}, Nachher: {after.timed_out_until}")
+
+        try:
+            async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_update):
+                if after.timed_out_until:  # Timeout gesetzt
+                    await log_channel.send(
+                        f"⏱️ **Timeout:** {after.mention}\n"
+                        f"🔧 **Durchgeführt von:** {entry.user.mention}\n"
+                        f"📅 **Ende:** <t:{int(after.timed_out_until.timestamp())}:F>"
+                    )
+                    print(f"✅ Timeout gesetzt für {after} von {entry.user}.")
+                else:  # Timeout entfernt
+                    await log_channel.send(
+                        f"⏱️ **Timeout entfernt:** {after.mention}\n"
+                        f"🔧 **Entfernt von:** {entry.user.mention}"
+                    )
+                    print(f"✅ Timeout entfernt für {after} von {entry.user}.")
+                break
+        except Exception as e:
+            print(f"⚠️ Fehler beim Verarbeiten des Timeout-Logs: {e}")
+    else:
+        print("Keine Änderungen am Timeout festgestellt.")
+
+
+@bot.event
+async def on_member_ban(guild: discord.Guild, user: discord.User):
+    """
+    Event: Mitglied gebannt.
+    Protokolliert Bans und sendet eine Log-Nachricht in den Log-Kanal.
+    """
+    print(f"Event ausgelöst: Mitglied gebannt ({user}).")
+
+    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
+    log_channel_id = log_channels.get(str(guild.id))
+    if not log_channel_id:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {guild.id} gesetzt.")
+        return
+
+    # Kanalobjekt holen
+    log_channel = bot.get_channel(log_channel_id)
+    if not log_channel:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+        return
+
+    # Verantwortlichen für den Ban ermitteln und loggen
+    try:
+        async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.ban):
+            if entry.target.id == user.id:  # Sicherstellen, dass der Ban-Eintrag zu diesem Benutzer gehört
+                await log_channel.send(
+                    f"🔨 **Ban:** {user.mention} ({user.id})\n"
+                    f"🔧 **Durchgeführt von:** {entry.user.mention}\n"
+                    f"📄 **Grund:** {entry.reason or 'Kein Grund angegeben'}"
+                )
+                print(f"✅ Ban geloggt: {user} wurde von {entry.user} gebannt.")
+                break
+        else:
+            print("⚠️ Kein passender Audit-Log-Eintrag für den Ban gefunden.")
+    except Exception as e:
+        print(f"⚠️ Fehler beim Verarbeiten des Ban-Logs: {e}")
+
+
+@bot.event
+async def on_member_kick(member: discord.Member):
+    """
+    Event: Mitglied gekickt.
+    Protokolliert Kicks und sendet eine Log-Nachricht in den Log-Kanal.
+    """
+    print(f"Event ausgelöst: Mitglied gekickt ({member}).")
+
+    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
+    log_channel_id = log_channels.get(str(member.guild.id))
+    if not log_channel_id:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {member.guild.id} gesetzt.")
+        return
+
+    # Kanalobjekt holen
+    log_channel = bot.get_channel(log_channel_id)
+    if not log_channel:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+        return
+
+    # Verantwortlichen für den Kick ermitteln und loggen
+    try:
+        async for entry in member.guild.audit_logs(limit=1, action=discord.AuditLogAction.kick):
+            if entry.target.id == member.id:  # Sicherstellen, dass der Eintrag zu diesem Mitglied gehört
+                await log_channel.send(
+                    f"👢 **Kick:** {member.mention} ({member.id})\n"
+                    f"🔧 **Durchgeführt von:** {entry.user.mention}\n"
+                    f"📄 **Grund:** {entry.reason or 'Kein Grund angegeben'}"
+                )
+                print(f"✅ Kick geloggt: {member} wurde von {entry.user} gekickt.")
+                break
+        else:
+            print("⚠️ Kein passender Audit-Log-Eintrag für den Kick gefunden.")
+    except Exception as e:
+        print(f"⚠️ Fehler beim Verarbeiten des Kick-Logs: {e}")
+
+@bot.event
+async def on_member_unban(guild: discord.Guild, user: discord.User):
+    """
+    Event: Mitglied entbannt.
+    Protokolliert Unbans und sendet eine Log-Nachricht in den Log-Kanal.
+    """
+    print(f"Event ausgelöst: Mitglied entbannt ({user}).")
+
+    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
+    log_channel_id = log_channels.get(str(guild.id))
+    if not log_channel_id:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {guild.id} gesetzt.")
+        return
+
+    # Kanalobjekt holen
+    log_channel = bot.get_channel(log_channel_id)
+    if not log_channel:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+        return
+
+    # Verantwortlichen für den Unban ermitteln und loggen
+    try:
+        async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.unban):
+            if entry.target.id == user.id:  # Sicherstellen, dass der Audit-Log-Eintrag passt
+                await log_channel.send(
+                    f"🔓 **Unban:** {user.mention} ({user.id}) wurde vom Server entbannt.\n"
+                    f"🔧 **Durchgeführt von:** {entry.user.mention}\n"
+                    f"📅 **Zeitpunkt:** <t:{int(entry.created_at.timestamp())}:f>"
+                )
+                print(f"✅ Unban geloggt: {user} wurde von {entry.user} entbannt.")
+                break
+        else:
+            # Falls kein passender Audit-Log-Eintrag gefunden wurde
+            await log_channel.send(
+                f"🔓 **Unban:** {user.mention} ({user.id}) wurde vom Server entbannt, "
+                "aber der Verantwortliche konnte nicht ermittelt werden."
+            )
+            print(f"⚠️ Kein passender Audit-Log-Eintrag für den Unban von {user} gefunden.")
+    except Exception as e:
+        print(f"⚠️ Fehler beim Verarbeiten des Unban-Logs: {e}")
+        await log_channel.send(
+            f"⚠️ **Unban:** {user.mention} ({user.id}) wurde vom Server entbannt, aber ein Fehler ist aufgetreten."
+        )
 
 # Event: Mitglieder beitreten
 @bot.event
 async def on_member_join(member: discord.Member):
-    log_channel_id = log_channels.get(member.guild.id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            await log_channel.send(f"{member.mention} hat den Server betreten!")
+    """
+    Event: Mitglied tritt dem Server bei.
+    Protokolliert neue Mitglieder und sendet eine Nachricht in den Log-Kanal.
+    """
+    print(f"Event ausgelöst: Mitglied tritt bei ({member}).")
+
+    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
+    log_channel_id = log_channels.get(str(member.guild.id))
+    if not log_channel_id:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {member.guild.id} gesetzt.")
+        return
+
+    # Kanalobjekt holen
+    log_channel = bot.get_channel(log_channel_id)
+    if not log_channel:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+        return
+
+    # Nachricht über den Beitritt senden
+    try:
+        await log_channel.send(f"🎉 **Neues Mitglied:** {member.mention} hat den Server betreten.")
+        print(f"✅ Mitgliedsbeitritt geloggt: {member} hat den Server betreten.")
+    except Exception as e:
+        print(f"⚠️ Fehler beim Senden der Beitrittsnachricht: {e}")
+        await log_channel.send(
+            f"⚠️ **Fehler:** {member.mention} hat den Server betreten, aber eine Fehlermeldung trat auf."
+        )
 
 # Event: Mitglieder den Server verlassen
 @bot.event
 async def on_member_remove(member: discord.Member):
-    log_channel_id = log_channels.get(member.guild.id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            await log_channel.send(f"{member.mention} hat den Server verlassen.")
+    """
+    Event: Mitglied verlässt den Server.
+    Protokolliert das Verlassen von Mitgliedern und sendet eine Nachricht in den Log-Kanal.
+    """
+    print(f"Event ausgelöst: Mitglied verlässt den Server ({member}).")
+
+    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
+    log_channel_id = log_channels.get(str(member.guild.id))
+    if not log_channel_id:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {member.guild.id} gesetzt.")
+        return
+
+    # Kanalobjekt holen
+    log_channel = bot.get_channel(log_channel_id)
+    if not log_channel:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+        return
+
+    # Nachricht über das Verlassen senden
+    try:
+        await log_channel.send(f"👋 **Mitglied verlassen:** {member.mention} hat den Server verlassen.")
+        print(f"✅ Verlassen des Mitglieds geloggt: {member} hat den Server verlassen.")
+    except Exception as e:
+        print(f"⚠️ Fehler beim Senden der Verlassensnachricht: {e}")
+        await log_channel.send(
+            f"⚠️ **Fehler:** {member.mention} hat den Server verlassen, aber eine Fehlermeldung trat auf."
+        )
+
 
 # Voice Channel
 @bot.event
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-    log_channel_id = log_channels.get(member.guild.id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            # Sprachkanal Betreten
-            if before.channel is None and after.channel is not None:
-                await log_channel.send(f"{member.mention} ist in den Sprachkanal {after.channel.mention} beigetreten.")
-            # Sprachkanal Verlassen
-            elif before.channel is not None and after.channel is None:
-                await log_channel.send(f"{member.mention} hat den Sprachkanal {before.channel.mention} verlassen.")
-            # Sprachkanal Wechsel
-            elif before.channel != after.channel:
-                await log_channel.send(f"{member.mention} hat den Sprachkanal von {before.channel.mention} zu {after.channel.mention} gewechselt.")
+    """
+    Event: Änderungen im Sprachkanal eines Mitglieds.
+    Protokolliert, wenn ein Mitglied Sprachkanäle betritt, verlässt oder wechselt.
+    Auch Änderungen an Mute/Deaf-Status werden protokolliert.
+    """
+    print(f"Event ausgelöst: Sprachkanal-Update für {member}. Vorher: {before.channel}, Nachher: {after.channel}")
 
-            # Prüfen, ob das Mitglied stummgeschaltet oder entmutet wurde (self-mute / self-deaf)
-            if before.self_mute != after.self_mute:
-                if after.self_mute:
-                    await log_channel.send(
-                        f"{member.mention} hat sich selbst stummgeschaltet in {after.channel.mention}.")
-                else:
-                    await log_channel.send(f"{member.mention} hat sich selbst entmutet in {after.channel.mention}.")
+    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
+    log_channel_id = log_channels.get(str(member.guild.id))
+    if not log_channel_id:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {member.guild.id} gesetzt.")
+        return
 
-            if before.self_deaf != after.self_deaf:
-                if after.self_deaf:
-                    await log_channel.send(
-                        f"{member.mention} hat sich selbst entmutet (deafen) in {after.channel.mention}.")
-                else:
-                    await log_channel.send(
-                        f"{member.mention} hat sich selbst entmutet (undeafen) in {after.channel.mention}.")
+    # Kanalobjekt holen
+    log_channel = bot.get_channel(log_channel_id)
+    if not log_channel:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+        return
 
-            # Moderatoren/Administratoren: Wenn der Admin oder Bot die Mute/Deaf-Option geändert hat
-            if before.mute != after.mute:
-                # Prüfen, ob der Bot oder ein Moderator das Mute ausgeführt hat
-                if after.mute:
-                    executor = "ein Moderator" if not member.bot else "der Bot"
-                    await log_channel.send(
-                        f"{member.mention} wurde von {executor} stummgeschaltet in {after.channel.mention}.")
-                else:
-                    executor = "ein Moderator" if not member.bot else "der Bot"
-                    await log_channel.send(
-                        f"{member.mention} wurde von {executor} entmutet in {after.channel.mention}.")
+    try:
+        # Sprachkanal Betreten
+        if before.channel is None and after.channel is not None:
+            await log_channel.send(f"{member.mention} ist in den Sprachkanal {after.channel.mention} beigetreten.")
 
-            if before.deaf != after.deaf:
-                # Prüfen, ob der Bot oder ein Moderator das Deafen ausgeführt hat
-                if after.deaf:
-                    executor = "ein Moderator" if not member.bot else "der Bot"
-                    await log_channel.send(
-                        f"{member.mention} wurde von {executor} entmutet (deafen) in {after.channel.mention}.")
-                else:
-                    executor = "ein Moderator" if not member.bot else "der Bot"
-                    await log_channel.send(
-                        f"{member.mention} wurde von {executor} entmutet (undeafen) in {after.channel.mention}.")
+        # Sprachkanal Verlassen
+        elif before.channel is not None and after.channel is None:
+            await log_channel.send(f"{member.mention} hat den Sprachkanal {before.channel.mention} verlassen.")
+
+        # Sprachkanal Wechsel
+        elif before.channel != after.channel:
+            await log_channel.send(
+                f"{member.mention} hat den Sprachkanal von {before.channel.mention} zu {after.channel.mention} gewechselt.")
+
+        # Selbst-Mute Änderungen
+        if before.self_mute != after.self_mute:
+            if after.self_mute:
+                await log_channel.send(f"{member.mention} hat sich selbst stummgeschaltet in {after.channel.mention}.")
+            else:
+                await log_channel.send(f"{member.mention} hat sich selbst entmutet in {after.channel.mention}.")
+
+        # Selbst-Deafen Änderungen
+        if before.self_deaf != after.self_deaf:
+            if after.self_deaf:
+                await log_channel.send(
+                    f"{member.mention} hat sich selbst entmutet (deafen) in {after.channel.mention}.")
+            else:
+                await log_channel.send(
+                    f"{member.mention} hat sich selbst entmutet (undeafen) in {after.channel.mention}.")
+
+        # Mute durch Moderatoren/Administratoren
+        if before.mute != after.mute:
+            executor = "ein Moderator" if not member.bot else "der Bot"
+            if after.mute:
+                await log_channel.send(
+                    f"{member.mention} wurde von {executor} stummgeschaltet in {after.channel.mention}.")
+            else:
+                await log_channel.send(f"{member.mention} wurde von {executor} entmutet in {after.channel.mention}.")
+
+        # Deafen durch Moderatoren/Administratoren
+        if before.deaf != after.deaf:
+            executor = "ein Moderator" if not member.bot else "der Bot"
+            if after.deaf:
+                await log_channel.send(
+                    f"{member.mention} wurde von {executor} entmutet (deafen) in {after.channel.mention}.")
+            else:
+                await log_channel.send(
+                    f"{member.mention} wurde von {executor} entmutet (undeafen) in {after.channel.mention}.")
+
+        print(f"✅ Sprachkanaländerung für {member} protokolliert.")
+
+    except Exception as e:
+        print(f"⚠️ Fehler beim Verarbeiten des Sprachkanal-Updates für {member}: {e}")
+        await log_channel.send(
+            f"⚠️ **Fehler:** Änderungen im Sprachkanal für {member.mention} konnten nicht protokolliert werden.")
+
 
 # Event: Rollenänderungen
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
-    log_channel_id = log_channels.get(after.guild.id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            added_roles = [role for role in after.roles if role not in before.roles]
-            removed_roles = [role for role in before.roles if role not in after.roles]
+    """
+    Event: Rollenänderungen eines Mitglieds.
+    Protokolliert, wenn einem Mitglied eine Rolle hinzugefügt oder entfernt wird.
+    Auch der Executor (wer die Änderung vorgenommen hat) wird erfasst.
+    """
+    print(f"Event ausgelöst: Rollenänderung für {after}. Vorher: {before.roles}, Nachher: {after.roles}")
 
-            for role in added_roles:
-                # Holen des Executors (wer hat die Rolle hinzugefügt)
-                async for entry in after.guild.audit_logs(action=discord.AuditLogAction.member_role_update, limit=1):
-                    if entry.target == after and role in entry.after.roles:  # Überprüfen, ob die Rolle hinzugefügt wurde
-                        executor = entry.user  # Der User, der die Rolle hinzugefügt hat
-                        await log_channel.send(f"{after.mention} hat die Rolle {role.mention} erhalten von {executor.mention}.")
+    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
+    log_channel_id = log_channels.get(str(after.guild.id))
+    if not log_channel_id:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {after.guild.id} gesetzt.")
+        return
 
-            for role in removed_roles:
-                # Holen des Executors (wer hat die Rolle entfernt)
-                async for entry in after.guild.audit_logs(action=discord.AuditLogAction.member_role_update, limit=1):
-                    if entry.target == after and role in entry.before.roles:  # Überprüfen, ob die Rolle entfernt wurde
-                        executor = entry.user  # Der User, der die Rolle entfernt hat
-                        await log_channel.send(f"{after.mention} hat die Rolle {role.mention} verloren von {executor.mention}.")
+    # Kanalobjekt holen
+    log_channel = bot.get_channel(log_channel_id)
+    if not log_channel:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+        return
+
+    try:
+        # Rollen, die hinzugefügt wurden
+        added_roles = [role for role in after.roles if role not in before.roles]
+        # Rollen, die entfernt wurden
+        removed_roles = [role for role in before.roles if role not in after.roles]
+
+        # Rollen hinzugefügt
+        for role in added_roles:
+            async for entry in after.guild.audit_logs(action=discord.AuditLogAction.member_role_update, limit=1):
+                if entry.target == after and role in entry.after.roles:
+                    executor = entry.user  # Der User, der die Rolle hinzugefügt hat
+                    await log_channel.send(f"{after.mention} hat die Rolle {role.mention} erhalten von {executor.mention}.")
+
+        # Rollen entfernt
+        for role in removed_roles:
+            async for entry in after.guild.audit_logs(action=discord.AuditLogAction.member_role_update, limit=1):
+                if entry.target == after and role in entry.before.roles:
+                    executor = entry.user  # Der User, der die Rolle entfernt hat
+                    await log_channel.send(f"{after.mention} hat die Rolle {role.mention} verloren von {executor.mention}.")
+
+        print(f"✅ Rollenänderungen für {after} protokolliert.")
+
+    except Exception as e:
+        print(f"⚠️ Fehler beim Verarbeiten der Rollenänderungen für {after}: {e}")
+        await log_channel.send(f"⚠️ **Fehler:** Rollenänderungen für {after.mention} konnten nicht protokolliert werden.")
+
 
 # Event: Kanal erstellen
 @bot.event
 async def on_guild_channel_create(channel: discord.abc.GuildChannel):
-    log_channel_id = log_channels.get(channel.guild.id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            # Hole den Audit-Log-Eintrag für das Erstellen von Kanälen
-            async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_create, limit=1):
-                if entry.target.id == channel.id:  # Sicherstellen, dass der Eintrag zum erstellten Kanal gehört
-                    await log_channel.send(f"📂 Kanal erstellt: {channel.name} ({channel.type})\n"
-                                           f"Erstellt von: {entry.user.mention}")
-                    break
+    """
+    Event: Kanal wird erstellt.
+    Protokolliert das Erstellen eines Kanals und sendet eine Nachricht in den Log-Kanal.
+    """
+    print(f"Event ausgelöst: Kanal erstellt ({channel.name}, {channel.type})")
+
+    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
+    log_channel_id = log_channels.get(str(channel.guild.id))
+    if not log_channel_id:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {channel.guild.id} gesetzt.")
+        return
+
+    # Kanalobjekt holen
+    log_channel = bot.get_channel(log_channel_id)
+    if not log_channel:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+        return
+
+    try:
+        # Hole den Audit-Log-Eintrag für das Erstellen von Kanälen
+        async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_create, limit=1):
+            if entry.target.id == channel.id:  # Sicherstellen, dass der Eintrag zum erstellten Kanal gehört
+                await log_channel.send(
+                    f"📂 **Kanal erstellt:** {channel.name} ({channel.type})\n"
+                    f"🔧 **Erstellt von:** {entry.user.mention}\n"
+                    f"📅 **Zeitpunkt:** <t:{int(entry.created_at.timestamp())}:f>"
+                )
+                print(f"✅ Kanal-Erstellung geloggt: {channel.name} erstellt von {entry.user}")
+                break
+        else:
+            # Falls kein passender Audit-Log-Eintrag gefunden wurde
+            await log_channel.send(
+                f"📂 **Kanal erstellt:** {channel.name} ({channel.type})\n"
+                "Aber der Ersteller konnte nicht ermittelt werden."
+            )
+            print(f"⚠️ Kein Audit-Log-Eintrag für den Kanal {channel.name} gefunden.")
+
+    except Exception as e:
+        print(f"⚠️ Fehler beim Verarbeiten des Kanal-Erstellungs-Logs: {e}")
+        await log_channel.send(
+            f"⚠️ **Kanal erstellt:** {channel.name} ({channel.type})\n"
+            "Es trat ein Fehler bei der Erfassung der Ersteller-Informationen auf."
+        )
+
 
 # Event: Kanal löschen
 @bot.event
 async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
-    log_channel_id = log_channels.get(channel.guild.id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            # Hole den Audit-Log-Eintrag für das Löschen von Kanälen
-            async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_delete, limit=1):
-                if entry.target.id == channel.id:  # Sicherstellen, dass der Eintrag zum gelöschten Kanal gehört
-                    await log_channel.send(f"❌ Kanal gelöscht: {channel.name} ({channel.type})\n"
-                                           f"Gelöscht von: {entry.user.mention}")
-                    break
+    """
+    Event: Kanal wird gelöscht.
+    Protokolliert das Löschen eines Kanals und sendet eine Nachricht in den Log-Kanal.
+    """
+    print(f"Event ausgelöst: Kanal gelöscht ({channel.name}, {channel.type})")
+
+    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
+    log_channel_id = log_channels.get(str(channel.guild.id))
+    if not log_channel_id:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {channel.guild.id} gesetzt.")
+        return
+
+    # Kanalobjekt holen
+    log_channel = bot.get_channel(log_channel_id)
+    if not log_channel:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+        return
+
+    try:
+        # Hole den Audit-Log-Eintrag für das Löschen von Kanälen
+        async for entry in channel.guild.audit_logs(action=discord.AuditLogAction.channel_delete, limit=1):
+            if entry.target.id == channel.id:  # Sicherstellen, dass der Eintrag zum gelöschten Kanal gehört
+                await log_channel.send(
+                    f"❌ **Kanal gelöscht:** {channel.name} ({channel.type})\n"
+                    f"🔧 **Gelöscht von:** {entry.user.mention}\n"
+                    f"📅 **Zeitpunkt:** <t:{int(entry.created_at.timestamp())}:f>"
+                )
+                print(f"✅ Kanal-Löschung geloggt: {channel.name} gelöscht von {entry.user}")
+                break
+        else:
+            # Falls kein passender Audit-Log-Eintrag gefunden wurde
+            await log_channel.send(
+                f"❌ **Kanal gelöscht:** {channel.name} ({channel.type})\n"
+                "Aber der Löschende konnte nicht ermittelt werden."
+            )
+            print(f"⚠️ Kein Audit-Log-Eintrag für den Kanal {channel.name} gefunden.")
+
+    except Exception as e:
+        print(f"⚠️ Fehler beim Verarbeiten des Kanal-Lösch-Logs: {e}")
+        await log_channel.send(
+            f"⚠️ **Kanal gelöscht:** {channel.name} ({channel.type})\n"
+            "Es trat ein Fehler bei der Erfassung der Lösch-Informationen auf."
+        )
+
 
 # Event: Kanal bearbeiten (Name, Beschreibung etc.)
 @bot.event
 async def on_guild_channel_update(before: discord.abc.GuildChannel, after: discord.abc.GuildChannel):
-    log_channel_id = log_channels.get(before.guild.id)  # Stelle sicher, dass log_channels korrekt definiert ist
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            # Überprüfen, ob der Kanalname geändert wurde
-            if before.name != after.name:
-                # Kanalname geändert, Kanalname wird in Klammern gepingt, keine Kanal-Ping
+    """
+    Event: Kanal wird bearbeitet (z. B. Name, Berechtigungen, Position, Kategorie).
+    Protokolliert Änderungen an Kanälen und sendet Nachrichten in den Log-Kanal.
+    """
+    print(f"Event ausgelöst: Kanalbearbeitung ({before.name})")
+
+    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
+    log_channel_id = log_channels.get(str(before.guild.id))
+    if not log_channel_id:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {before.guild.id} gesetzt.")
+        return
+
+    # Kanalobjekt holen
+    log_channel = bot.get_channel(log_channel_id)
+    if not log_channel:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+        return
+
+    try:
+        # Überprüfen, ob der Kanalname geändert wurde
+        if before.name != after.name:
+            async for entry in before.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
+                executor = entry.user  # Der Benutzer, der die Änderung vorgenommen hat
+                await log_channel.send(
+                    f"Der Kanal **{before.name}** wurde von {executor.mention} umbenannt in **{after.name}**. ({after.name})"
+                )
+                print(f"✅ Kanalname geändert: {before.name} -> {after.name}")
+
+        # Überprüfen, ob Berechtigungen geändert wurden
+        if before.overwrites != after.overwrites:
+            changed_permissions = []
+            for target, before_overwrite in before.overwrites.items():
+                after_overwrite = after.overwrites.get(target)
+                if after_overwrite != before_overwrite:
+                    change_desc = f"{target}: "
+                    if after_overwrite.read_messages != before_overwrite.read_messages:
+                        change_desc += f"Leserechte geändert ({'erlaubt' if after_overwrite.read_messages else 'nicht erlaubt'}), "
+                    if after_overwrite.send_messages != before_overwrite.send_messages:
+                        change_desc += f"Schreibrechte geändert ({'erlaubt' if after_overwrite.send_messages else 'nicht erlaubt'}), "
+                    changed_permissions.append(change_desc.rstrip(", "))
+
+            if changed_permissions:
                 async for entry in before.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
                     executor = entry.user  # Der Benutzer, der die Änderung vorgenommen hat
                     await log_channel.send(
-                        f"Der Kanal **{before.name}** wurde von {executor.mention} umbenannt in **{after.name}**. ({after.name})")
+                        f"Die Berechtigungen für {after.mention} wurden von {executor.mention} geändert: {', '.join(changed_permissions)}."
+                    )
+                    print(f"✅ Berechtigungen geändert für {after.name}")
 
-            # Überprüfen, ob Berechtigungen geändert wurden
-            if before.overwrites != after.overwrites:
-                # Überprüfen, welche Berechtigungen geändert wurden
-                changed_permissions = []
-                for target, before_overwrite in before.overwrites.items():
-                    after_overwrite = after.overwrites.get(target)
-                    if after_overwrite != before_overwrite:
-                        change_desc = f"{target}: "
-                        if after_overwrite.read_messages != before_overwrite.read_messages:
-                            change_desc += f"Leserechte geändert ({'erlaubt' if after_overwrite.read_messages else 'nicht erlaubt'}), "
-                        if after_overwrite.send_messages != before_overwrite.send_messages:
-                            change_desc += f"Schreibrechte geändert ({'erlaubt' if after_overwrite.send_messages else 'nicht erlaubt'}), "
-                        changed_permissions.append(change_desc.rstrip(", "))
+        # Überprüfen, ob die Kanalposition geändert wurde (nur innerhalb der gleichen Kategorie)
+        if before.position != after.position and before.category == after.category:
+            async for entry in before.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
+                executor = entry.user  # Der Benutzer, der die Änderung vorgenommen hat
+                await log_channel.send(
+                    f"Die Kanalposition von {after.mention} wurde von Position {before.position} auf {after.position} geändert von {executor.mention}."
+                )
+                print(f"✅ Kanalposition geändert: {before.position} -> {after.position}")
 
-                if changed_permissions:
-                    async for entry in before.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
-                        executor = entry.user  # Der Benutzer, der die Änderung vorgenommen hat
-                        await log_channel.send(
-                            f"Die Berechtigungen für {after.mention} wurden von {executor.mention} geändert: {', '.join(changed_permissions)}.")
+        # Überprüfen, ob der Kanal die Kategorie gewechselt hat
+        if before.category != after.category:
+            async for entry in before.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
+                executor = entry.user  # Der Benutzer, der die Änderung vorgenommen hat
+                await log_channel.send(
+                    f"Der Kanal {after.mention} wurde von {executor.mention} von der Kategorie **{before.category.name}** in **{after.category.name}** verschoben."
+                )
+                print(f"✅ Kanal verschoben: {before.category.name} -> {after.category.name}")
 
-            # Überprüfen, ob die Kanalposition geändert wurde (nur innerhalb der gleichen Kategorie)
-            if before.position != after.position and before.category == after.category:
-                async for entry in before.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
-                    executor = entry.user  # Der Benutzer, der die Änderung vorgenommen hat
-                    await log_channel.send(
-                        f"Die Kanalposition von {after.mention} wurde von Position {before.position} auf {after.position} geändert von {executor.mention}.")
-
-            # Überprüfen, ob der Kanal die Kategorie gewechselt hat
-            if before.category != after.category:
-                async for entry in before.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
-                    executor = entry.user  # Der Benutzer, der die Änderung vorgenommen hat
-                    await log_channel.send(
-                        f"Der Kanal {after.mention} wurde von {executor.mention} von der Kategorie **{before.category.name}** in **{after.category.name}** verschoben.")
+    except Exception as e:
+        print(f"⚠️ Fehler beim Verarbeiten des Kanalbearbeitungs-Logs: {e}")
+        await log_channel.send(
+            f"⚠️ **Kanalbearbeitung:** Es trat ein Fehler bei der Erfassung der Änderungen für den Kanal {before.name} auf."
+        )
 
 
 # Event: Emoji-Hinzufügen und Entfernen
 @bot.event
 async def on_guild_emojis_update(guild: discord.Guild, before: list, after: list):
-    log_channel_id = log_channels.get(guild.id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            added_emojis = [emoji for emoji in after if emoji not in before]
-            removed_emojis = [emoji for emoji in before if emoji not in after]
+    """
+    Event: Emojis werden auf dem Server hinzugefügt oder entfernt.
+    Protokolliert das Hinzufügen und Entfernen von Emojis und sendet eine Nachricht in den Log-Kanal.
+    """
+    print(f"Event ausgelöst: Emoji-Update in {guild.name}")
 
-            for emoji in added_emojis:
-                await log_channel.send(f"✨ Neues Emoji hinzugefügt: {emoji} von **{guild.name}**.")
+    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
+    log_channel_id = log_channels.get(str(guild.id))
+    if not log_channel_id:
+        print(f"⚠️ Kein Log-Kanal für Guild-ID {guild.id} gesetzt.")
+        return
 
-            for emoji in removed_emojis:
-                remover = None
-                audit_logs = await guild.audit_logs(limit=1, action=discord.AuditLogAction.emoji_delete).flatten()
-                if audit_logs:
-                    remover = audit_logs[0].user
+    # Kanalobjekt holen
+    log_channel = bot.get_channel(log_channel_id)
+    if not log_channel:
+        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
+        return
 
-                remover_info = f" von {remover.mention}" if remover else ""
-                await log_channel.send(f"❌ Emoji entfernt: **{emoji.name}**{remover_info}.")
+    try:
+        added_emojis = [emoji for emoji in after if emoji not in before]
+        removed_emojis = [emoji for emoji in before if emoji not in after]
+
+        # Hinzugefügte Emojis protokollieren
+        for emoji in added_emojis:
+            await log_channel.send(f"✨ Neues Emoji hinzugefügt: {emoji} zu **{guild.name}**.")
+
+        # Entfernte Emojis protokollieren
+        for emoji in removed_emojis:
+            remover = None
+            # Audit-Log für das Entfernen von Emojis durchsuchen
+            audit_logs = await guild.audit_logs(limit=1, action=discord.AuditLogAction.emoji_delete).flatten()
+            if audit_logs:
+                remover = audit_logs[0].user  # Der Benutzer, der das Emoji entfernt hat
+
+            remover_info = f" von {remover.mention}" if remover else ""  # Information über den Entfernenden
+            await log_channel.send(f"❌ Emoji entfernt: **{emoji.name}**{remover_info}.")
+
+    except Exception as e:
+        print(f"⚠️ Fehler beim Verarbeiten der Emoji-Änderungen: {e}")
+        await log_channel.send(f"⚠️ **Emoji-Änderung:** Es trat ein Fehler bei der Erfassung der Emoji-Änderungen auf.")
 
 # Event: Reaktionen hinzufügen und entfernen
 @bot.event
 async def on_reaction_add(reaction: discord.Reaction, user: discord.User):
+    """
+    Event: Eine Reaktion wird auf eine Nachricht hinzugefügt.
+    Protokolliert das Hinzufügen von Reaktionen und sendet eine Nachricht in den Log-Kanal.
+    """
     log_channel_id = log_channels.get(reaction.message.guild.id)
     if log_channel_id:
         log_channel = bot.get_channel(log_channel_id)
         if log_channel:
             await log_channel.send(f"{user.mention} hat mit {reaction.emoji} auf die Nachricht reagiert.")
 
+@bot.event
+async def on_reaction_remove(reaction: discord.Reaction, user: discord.User):
+    """
+    Event: Eine Reaktion wird von einer Nachricht entfernt.
+    Protokolliert das Entfernen von Reaktionen und sendet eine Nachricht in den Log-Kanal.
+    """
+    log_channel_id = log_channels.get(reaction.message.guild.id)
+    if log_channel_id:
+        log_channel = bot.get_channel(log_channel_id)
+        if log_channel:
+            await log_channel.send(f"{user.mention} hat die Reaktion {reaction.emoji} von der Nachricht entfernt.")
+
 # Event: Rollen erstellen, löschen und bearbeiten
 @bot.event
-async def on_guild_role_create(role):
+async def on_guild_role_create(role: discord.Role):
+    """
+    Event: Eine neue Rolle wird auf dem Server erstellt.
+    Protokolliert das Erstellen von Rollen und sendet eine Nachricht in den Log-Kanal.
+    """
     log_channel_id = log_channels.get(role.guild.id)
     if log_channel_id:
         log_channel = bot.get_channel(log_channel_id)
@@ -1446,22 +1829,73 @@ async def on_guild_role_create(role):
                 await log_channel.send(f"🎭 **Neue Rolle erstellt:** {role.name}\n🔧 **Erstellt von:** {entry.user.mention}")
                 break
 
+
 @bot.event
-async def on_guild_role_delete(role):
+async def on_guild_role_delete(role: discord.Role):
+    """
+    Event: Eine Rolle wird auf dem Server gelöscht.
+    Protokolliert das Löschen von Rollen und sendet eine Nachricht in den Log-Kanal.
+    """
     log_channel_id = log_channels.get(role.guild.id)
     if log_channel_id:
         log_channel = bot.get_channel(log_channel_id)
         if log_channel:
+            # Prüfen, wer die Aktion durchgeführt hat
             async for entry in role.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_delete):
                 await log_channel.send(f"❌ **Rolle gelöscht:** {role.name}\n🔧 **Gelöscht von:** {entry.user.mention}")
                 break
 
+
 @bot.event
-async def on_guild_role_update(before, after):
+async def on_guild_role_update(before: discord.Role, after: discord.Role):
+    """
+    Event: Eine Rolle wird auf dem Server bearbeitet (z.B. Name oder Berechtigungen geändert).
+    Protokolliert die Änderungen an Rollen und sendet eine Nachricht in den Log-Kanal.
+    """
     log_channel_id = log_channels.get(after.guild.id)
     if log_channel_id:
         log_channel = bot.get_channel(log_channel_id)
         if log_channel:
+            # Prüfen, ob der Rollenname geändert wurde
+            if before.name != after.name:
+                async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_update):
+                    await log_channel.send(
+                        f"🎭 **Rolle umbenannt:** {before.name} → {after.name}\n🔧 **Ändert von:** {entry.user.mention}")
+
+            # Prüfen, ob Berechtigungen geändert wurden
+            if before.permissions != after.permissions:
+                async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_update):
+                    await log_channel.send(
+                        f"🎭 **Berechtigungen geändert für die Rolle:** {after.name}\n🔧 **Ändert von:** {entry.user.mention}")
+
+
+@bot.event
+async def on_guild_role_delete(role: discord.Role):
+    """
+    Event: Eine Rolle wird auf dem Server gelöscht.
+    Protokolliert das Löschen von Rollen und sendet eine Nachricht in den Log-Kanal.
+    """
+    log_channel_id = log_channels.get(role.guild.id)
+    if log_channel_id:
+        log_channel = bot.get_channel(log_channel_id)
+        if log_channel:
+            # Prüfen, wer die Aktion durchgeführt hat
+            async for entry in role.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_delete):
+                await log_channel.send(f"❌ **Rolle gelöscht:** {role.name}\n🔧 **Gelöscht von:** {entry.user.mention}")
+                break
+
+
+@bot.event
+async def on_guild_role_update(before: discord.Role, after: discord.Role):
+    """
+    Event: Eine Rolle wird auf dem Server bearbeitet (z.B. Name oder Berechtigungen geändert).
+    Protokolliert die Änderungen an Rollen und sendet eine Nachricht in den Log-Kanal.
+    """
+    log_channel_id = log_channels.get(after.guild.id)
+    if log_channel_id:
+        log_channel = bot.get_channel(log_channel_id)
+        if log_channel:
+            # Holen des Audit-Log-Eintrags für die Bearbeitung der Rolle
             async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_update):
                 changes = []
                 if before.name != after.name:
@@ -1470,6 +1904,8 @@ async def on_guild_role_update(before, after):
                     changes.append("**Berechtigungen geändert**")
                 if before.color != after.color:
                     changes.append(f"**Farbe:** {before.color} → {after.color}")
+
+                # Wenn Änderungen erkannt wurden, sende die Protokollnachricht
                 if changes:
                     await log_channel.send(
                         f"✏️ **Rolle bearbeitet:** {after.name}\n🔧 **Bearbeitet von:** {entry.user.mention}\n" +
@@ -1479,106 +1915,118 @@ async def on_guild_role_update(before, after):
 
 @bot.event
 async def on_reaction_remove(reaction: discord.Reaction, user: discord.User):
+    """
+    Event: Ein Benutzer entfernt eine Reaktion von einer Nachricht.
+    Protokolliert das Entfernen von Reaktionen und sendet eine Nachricht in den Log-Kanal.
+    """
+    # Holen des Log-Kanals für die Guild
     log_channel_id = log_channels.get(reaction.message.guild.id)
     if log_channel_id:
         log_channel = bot.get_channel(log_channel_id)
         if log_channel:
+            # Log-Nachricht senden, wenn der Benutzer eine Reaktion entfernt
             await log_channel.send(f"{user.mention} hat seine Reaktion {reaction.emoji} von der Nachricht entfernt.")
 
-# Event: Nitro Boost
+
 @bot.event
 async def on_guild_member_update(before: discord.Member, after: discord.Member):
+    """
+    Event: Nitro Boost des Mitglieds (Serverboost).
+    Protokolliert das Aktivieren und Zurücknehmen des Serverboosts.
+    """
     log_channel_id = log_channels.get(after.guild.id)
     if log_channel_id:
         log_channel = bot.get_channel(log_channel_id)
         if log_channel:
+            # Prüfen, ob der Benutzer den Serverboost aktiviert hat
             if before.premium_since is None and after.premium_since is not None:
-                await log_channel.send(f"{after.mention} hat den Server geboostet!")
+                # Serverboost aktiviert
+                await log_channel.send(f"{after.mention} hat den Server geboostet! 🎉")
+
+            # Prüfen, ob der Benutzer den Serverboost zurückgenommen hat
             elif before.premium_since is not None and after.premium_since is None:
-                await log_channel.send(f"{after.mention} hat den Serverboost zurückgenommen.")
+                # Serverboost zurückgenommen
+                await log_channel.send(f"{after.mention} hat den Serverboost zurückgenommen. 😢")
 
-# Event: Voice-State Update
-@bot.event
-async def on_voice_state_update(member, before, after):
-    if before.channel != after.channel:
-        if after.channel:
-            await send_embed_log(
-                guild_id=member.guild.id,
-                title="Voice-Channel betreten",
-                description=f"{member.mention} hat {after.channel.mention} betreten."
-            )
-        elif before.channel:
-            await send_embed_log(
-                guild_id=member.guild.id,
-                title="Voice-Channel verlassen",
-                description=f"{member.mention} hat {before.channel.mention} verlassen."
-            )
+            # Optional: Audit-Log-Einträge abfragen und den Executor protokollieren
+            async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_update):
+                if entry.target.id == after.id and entry.changes:
+                    # Durchsuchen der Änderungen für den Boost-Status
+                    for change in entry.changes:
+                        if change.key == "premium_since":
+                            executor = entry.user
+                            if after.premium_since:
+                                await log_channel.send(
+                                    f"✅ Boost wurde von {executor.mention} aktiviert für {after.mention}.")
+                            else:
+                                await log_channel.send(
+                                    f"❌ Boost wurde von {executor.mention} entfernt für {after.mention}.")
+                            break
 
-# Servername
+
 @bot.event
 async def on_guild_update(before: discord.Guild, after: discord.Guild):
+    """
+    Event: Servername geändert.
+    Protokolliert Änderungen des Servernamens.
+    """
     log_channel_id = log_channels.get(after.id)
     if log_channel_id:
         log_channel = bot.get_channel(log_channel_id)
         if log_channel:
             if before.name != after.name:
-                # Holen des Benutzers, der die Änderung vorgenommen hat
-                member = after.get_member(after.owner_id)  # Der Besitzer hat möglicherweise den Namen geändert
-                if member:
-                    await log_channel.send(f"Servername geändert: {before.name} → {after.name} durch {member.mention}")
+                # Hole den Audit-Log-Eintrag für die Änderung des Servernamens
+                async for entry in after.audit_logs(limit=1, action=discord.AuditLogAction.guild_update):
+                    if entry.target.id == after.id:
+                        executor = entry.user
+                        await log_channel.send(f"Servername geändert: {before.name} → {after.name} durch {executor.mention}")
+                        break
 
-# Server Einstellungen
 @bot.event
 async def on_guild_update(before: discord.Guild, after: discord.Guild):
+    """
+    Event: Servereinstellungen geändert.
+    Protokolliert Änderungen wie Server-Icon, Region, AFK-Channel und andere Einstellungen.
+    """
     log_channel_id = log_channels.get(after.id)
     if log_channel_id:
         log_channel = bot.get_channel(log_channel_id)
         if log_channel:
             # Server-Icon geändert
             if before.icon != after.icon:
-                await log_channel.send(f"**Server-Icon wurde geändert**. Neuer Icon-Link: {after.icon.url}.")
+                await log_channel.send(f"**Server-Icon wurde geändert.** Neuer Icon-Link: {after.icon.url}.")
 
             # Server-Region geändert
             if before.region != after.region:
-                await log_channel.send(f"**Server-Region wurde geändert**. Neue Region: {after.region}.")
+                await log_channel.send(f"**Server-Region wurde geändert.** Neue Region: {after.region}.")
 
             # AFK-Channel geändert
             if before.afk_channel != after.afk_channel:
                 if after.afk_channel:
-                    await log_channel.send(f"**AFK-Channel wurde geändert**. Neuer AFK-Channel: {after.afk_channel.mention}.")
+                    await log_channel.send(f"**AFK-Channel wurde geändert.** Neuer AFK-Channel: {after.afk_channel.mention}.")
                 else:
                     await log_channel.send(f"**AFK-Channel wurde entfernt.**")
 
-            # Protokollieren, dass diese Änderungen durch den Administrator/Bot gemacht wurden
-            # Hier kannst du den Administrator als Verantwortlichen markieren
-            await log_channel.send(f"Änderung durchgeführt von **{after.owner.mention}** (Server-Inhaber) oder durch einen Administrator.")
+            # Hole den Audit-Log-Eintrag für Änderungen der Servereinstellungen
+            async for entry in after.audit_logs(limit=1, action=discord.AuditLogAction.guild_update):
+                # Der Benutzer, der die Änderung vorgenommen hat
+                executor = entry.user
+                await log_channel.send(f"Änderung durchgeführt von **{executor.mention}** (Administrator/Bot).")
 
-# Event: Spam-Erkennung
-@bot.event
-async def on_message(message):
-    if message.guild:
-        log_channel_id = log_channels.get(message.guild.id)
-        if message.channel.id == log_channel_id:
-            return
-
-        current_time = time.time()
-        message_history[message.author.id].append(current_time)
-        message_history[message.author.id] = [
-            timestamp for timestamp in message_history[message.author.id]
-            if current_time - timestamp <= SPAM_TIME_WINDOW
-        ]
-
-        if len(message_history[message.author.id]) > SPAM_LIMIT:
-            await send_embed_log(
-                guild_id=message.guild.id,
-                title="Spam erkannt",
-                description=f"{message.author.mention} hat möglicherweise Spam gesendet!"
-            )
-        await bot.process_commands(message)
-
-# Event: Fehlerbehandlung
+# Event: Event Handler
 @bot.event
 async def on_error(event, *args, **kwargs):
+    log_channel_id = log_channels.get(args[0].guild.id) if args and hasattr(args[0], 'guild') else None
+    if log_channel_id:
+        log_channel = bot.get_channel(log_channel_id)
+        if log_channel:
+            await send_embed_log(
+                log_channel,
+                title="⚠️ Fehler",
+                description=f"Ein Fehler ist im Event **{event}** aufgetreten.\n```{traceback.format_exc()}```",
+                color=0xe74c3c  # Rot für Fehler
+            )
+    # Fehler auch in der Konsole ausgeben
     print(f"Fehler im Event {event}: {traceback.format_exc()}")
 
 # /lockdown Command (nur für Administratoren)
