@@ -1082,9 +1082,12 @@ DATA_FILE = "log_channels.json"
 
 # Speicher für Log-Daten, hier wird nur gespeichert, wenn sich etwas ändert
 def save_data(data, filename=DATA_FILE):
-    if data != load_data(filename):  # Wenn sich die Daten geändert haben
+    # Nur speichern, wenn sich die Daten geändert haben
+    current_data = load_data(filename)
+    if data != current_data:  # Wenn sich die Daten geändert haben
         with open(filename, "w") as file:
             json.dump(data, file, indent=4)
+        print(f"Log-Daten in {filename} gespeichert.")
 
 # Daten laden
 def load_data(filename=DATA_FILE):
@@ -1093,6 +1096,9 @@ def load_data(filename=DATA_FILE):
             return json.load(file)
     except FileNotFoundError:
         return {}  # Gibt ein leeres Dict zurück, falls die Datei nicht existiert
+    except json.JSONDecodeError:
+        print("⚠️ Fehler beim Laden der Log-Daten: Die Datei ist beschädigt.")
+        return {}  # Falls ein Fehler beim Parsen der JSON-Datei auftritt
 
 # Log-Channels beim Start laden
 log_channels = load_data()
@@ -1107,6 +1113,7 @@ SPAM_LIMIT = 5  # Nachrichtenlimit
 @bot.tree.command(name='set_log_channel', description='Setzt den Kanal für alle Log-Nachrichten.')
 @app_commands.describe(channel="Der Kanal, in dem Logs gespeichert werden.")
 async def set_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    """Setzt den Log-Kanal für den Server und speichert die Änderung in einer JSON-Datei."""
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("⚠️ Nur Administratoren können das tun.", ephemeral=True)
         return
@@ -1116,11 +1123,14 @@ async def set_log_channel(interaction: discord.Interaction, channel: discord.Tex
         await interaction.response.send_message(f'Der Log-Kanal ist bereits auf {channel.mention} gesetzt.', ephemeral=True)
         return
 
+    # Log-Kanal setzen und speichern
     log_channels[interaction.guild.id] = channel.id
     save_data(log_channels)  # Änderungen in der JSON-Datei speichern
     await interaction.response.send_message(f'Log-Kanal auf {channel.mention} gesetzt!', ephemeral=True)
 
+
 async def send_embed_log(guild_id, title, description, color=0x3498db):
+    """Sendet eine Log-Nachricht an den festgelegten Log-Kanal."""
     # Prüfen, ob ein Log-Kanal gesetzt ist
     if guild_id not in log_channels:
         print(f"⚠️ Kein Log-Kanal für Guild-ID {guild_id} gesetzt!")
@@ -1134,8 +1144,19 @@ async def send_embed_log(guild_id, title, description, color=0x3498db):
         return
 
     # Embed senden
-    embed = Embed(title=title, description=description, color=color)
+    embed = discord.Embed(title=title, description=description, color=color)
     await log_channel.send(embed=embed)
+
+
+# Event, das beim Start des Bots ausgelöst wird
+@bot.event
+async def on_ready():
+    global log_channels
+    log_channels = load_data()  # Lädt die Log-Daten beim Start des Bots
+    print("Bot ist bereit und Log-Kanäle wurden geladen:", log_channels)
+
+    if not log_channels:
+        print("⚠️ Kein Log-Kanal konfiguriert.")
 
 @bot.event
 async def on_message_edit(before: discord.Message, after: discord.Message):
