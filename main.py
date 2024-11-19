@@ -1082,14 +1082,15 @@ DATA_FILE = "log_channels.json"
 
 
 def save_data(data, filename=DATA_FILE):
-    """Speichert die Log-Daten in einer JSON-Datei, ohne Duplikate zu erzeugen."""
-    current_data = load_data(filename)
-
-    # Wenn die Daten sich geändert haben, speichere die Datei
-    if data != current_data:
-        with open(filename, "w") as file:
-            json.dump(data, file, indent=4)
-        print(f"Log-Daten in {filename} gespeichert.")
+    """Speichert die Log-Daten in einer JSON-Datei, wenn sich die Daten geändert haben."""
+    try:
+        current_data = load_data(filename)
+        if data != current_data:
+            with open(filename, "w") as file:
+                json.dump(data, file, indent=4)
+            print(f"Log-Daten in {filename} gespeichert.")
+    except Exception as e:
+        print(f"Fehler beim Speichern der Daten: {e}")
 
 
 # Daten laden
@@ -1121,13 +1122,9 @@ async def set_log_channel(interaction: discord.Interaction, channel: discord.Tex
         await interaction.response.send_message("⚠️ Nur Administratoren können das tun.", ephemeral=True)
         return
 
-    # Verhindern, dass der Kanal mehrfach gesetzt wird
-    if log_channels.get(interaction.guild.id) == channel.id:
-        await interaction.response.send_message(f'Der Log-Kanal ist bereits auf {channel.mention} gesetzt.', ephemeral=True)
-        return
-
-    # Log-Kanal setzen und speichern
-    log_channels[interaction.guild.id] = channel.id
+    # Log-Kanal für diese Guild-ID setzen
+    guild_id = str(interaction.guild.id)  # Verwende str, um sicherzustellen, dass es eine Zeichenkette ist
+    log_channels[guild_id] = channel.id
     save_data(log_channels)  # Änderungen in der JSON-Datei speichern
     await interaction.response.send_message(f'Log-Kanal auf {channel.mention} gesetzt!', ephemeral=True)
 
