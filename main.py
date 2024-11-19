@@ -1080,14 +1080,17 @@ async def create_role(interaction: discord.Interaction, role_name: str):
 # JSON-Datei zum Speichern der Log-Channels
 DATA_FILE = "log_channels.json"
 
-# Speicher für Log-Daten, hier wird nur gespeichert, wenn sich etwas ändert
+
 def save_data(data, filename=DATA_FILE):
-    # Nur speichern, wenn sich die Daten geändert haben
+    """Speichert die Log-Daten in einer JSON-Datei, ohne Duplikate zu erzeugen."""
     current_data = load_data(filename)
-    if data != current_data:  # Wenn sich die Daten geändert haben
+
+    # Wenn die Daten sich geändert haben, speichere die Datei
+    if data != current_data:
         with open(filename, "w") as file:
             json.dump(data, file, indent=4)
         print(f"Log-Daten in {filename} gespeichert.")
+
 
 # Daten laden
 def load_data(filename=DATA_FILE):
