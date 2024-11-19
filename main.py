@@ -1089,6 +1089,8 @@ def save_data(data, filename=DATA_FILE):
             with open(filename, "w") as file:
                 json.dump(data, file, indent=4)
             print(f"Log-Daten in {filename} gespeichert.")
+        else:
+            print(f"Keine Änderungen an den Log-Daten. Nichts wurde gespeichert.")
     except Exception as e:
         print(f"Fehler beim Speichern der Daten: {e}")
 
@@ -1096,21 +1098,18 @@ def save_data(data, filename=DATA_FILE):
 def load_data(filename=DATA_FILE):
     try:
         with open(filename, "r") as file:
-            return json.load(file)
+            data = json.load(file)
+            print(f"Geladene Log-Daten: {data}")  # Debugging-Ausgabe
+            return data
     except FileNotFoundError:
+        print(f"Die Datei {filename} wurde nicht gefunden. Erstelle leere Daten.")  # Debugging-Ausgabe
         return {}  # Gibt ein leeres Dict zurück, falls die Datei nicht existiert
     except json.JSONDecodeError:
-        print("⚠️ Fehler beim Laden der Log-Daten: Die Datei ist beschädigt.")
+        print("⚠️ Fehler beim Laden der Log-Daten: Die Datei ist beschädigt.")  # Debugging-Ausgabe
         return {}  # Falls ein Fehler beim Parsen der JSON-Datei auftritt
 
 # Log-Channels beim Start laden
 log_channels = load_data()
-
-
-# Speicher für Nachrichten (um Spam zu überwachen)
-message_history = defaultdict(list)  # key: user_id, value: list of timestamps of messages
-SPAM_TIME_WINDOW = 10  # Sekunden
-SPAM_LIMIT = 5  # Nachrichtenlimit
 
 
 # Log-Kanal setzen
@@ -1145,8 +1144,10 @@ async def send_embed_log(guild_id, title, description, color=0x3498db):
 
     # Embed senden
     embed = discord.Embed(title=title, description=description, color=color)
-    await log_channel.send(embed=embed)
-
+    try:
+        await log_channel.send(embed=embed)
+    except Exception as e:
+        print(f"Fehler beim Senden der Log-Nachricht: {e}")
 
 @bot.event
 async def on_message_edit(before: discord.Message, after: discord.Message):
@@ -1566,7 +1567,11 @@ async def on_guild_update(before: discord.Guild, after: discord.Guild):
             await log_channel.send(f"Änderung durchgeführt von **{after.owner.mention}** (Server-Inhaber) oder durch einen Administrator.")
 
 
-# Spam-Überwachung
+# Speicher für Nachrichten (um Spam zu überwachen)
+message_history = defaultdict(list)  # key: user_id, value: list of timestamps of messages
+SPAM_TIME_WINDOW = 10  # Sekunden
+SPAM_LIMIT = 5  # Nachrichtenlimit
+
 @bot.event
 async def on_message(message):
     # Überprüfen, ob die Nachricht in einem Server gesendet wurde
@@ -1615,7 +1620,8 @@ async def on_message(message):
         # Wenn die Nachricht in einer DM gesendet wurde, logge dies (oder ignoriere sie)
         print(f"Nachricht in einer DM von {message.author.name}: {message.content}")
         return  # Verarbeite DMs nicht weiter
-    
+
+
 # Event: Event Handler
 @bot.event
 async def on_error(event, *args, **kwargs):
