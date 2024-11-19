@@ -377,9 +377,10 @@ class ItemModal(discord.ui.Modal):
                 warehouses[self.warehouse_name][item_name] = warehouses[self.warehouse_name].get(item_name,
                                                                                                  0) + quantity
                 save_warehouses()  # Speichern nach der Änderung
-                # Sende Bestätigungsnachricht als DM
-                await interaction.user.send(
-                    f"✅ {quantity}x '{item_name}' wurde zum Lager '{self.warehouse_name}' hinzugefügt."
+                # Bestätigung im Kanal als Ephemeral-Nachricht
+                await interaction.response.send_message(
+                    f"✅ {quantity}x '{item_name}' wurde zum Lager '{self.warehouse_name}' hinzugefügt.",
+                    ephemeral=True
                 )
             else:
                 if item_name not in warehouses.get(self.warehouse_name, {}):
@@ -390,9 +391,10 @@ class ItemModal(discord.ui.Modal):
                     return
                 warehouses[self.warehouse_name][item_name] -= quantity
                 save_warehouses()  # Speichern nach der Änderung
-                # Sende Bestätigungsnachricht als DM
-                await interaction.user.send(
-                    f"✅ {quantity}x '{item_name}' wurde vom Lager '{self.warehouse_name}' entfernt."
+                # Bestätigung im Kanal als Ephemeral-Nachricht
+                await interaction.response.send_message(
+                    f"✅ {quantity}x '{item_name}' wurde vom Lager '{self.warehouse_name}' entfernt.",
+                    ephemeral=True
                 )
 
             # Update der Lagerinhaltsnachricht im Kanal (falls gewünscht)
