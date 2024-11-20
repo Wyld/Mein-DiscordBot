@@ -37,9 +37,11 @@ jobs:
       - name: Load log_channels.json from GitHub repository
         run: |
           curl -H "Authorization: token ${{ secrets.LOG_TOKEN }}" \
-               -L https://api.github.com/repos/Wyld/Mein-DiscordBot/contents/log_channels.json \
+               -L https://raw.githubusercontent.com/Wyld/Mein-DiscordBot/main/log_channels.json \
                -o log_channels.json
-          cat log_channels.json  # Überprüfen, ob die Datei korrekt gespeichert wurde
+          echo "Verifiziere heruntergeladene Datei..."
+          cat log_channels.json
+          python -c "import json; json.load(open('log_channels.json'))"
 
       # 6. Discord Bot ausführen
       - name: Run Discord Bot
@@ -53,6 +55,7 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
+          echo "# Update $(date)" >> log_channels.json
           git add log_channels.json
           git commit -m "Update log_channels.json"
           git push https://github.com/${{ secrets.LOG_TOKEN }}@github.com/Wyld/Mein-DiscordBot.git HEAD:main
