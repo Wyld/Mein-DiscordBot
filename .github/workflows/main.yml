@@ -40,23 +40,31 @@ jobs:
                -L https://raw.githubusercontent.com/Wyld/Mein-DiscordBot/main/log_channels.json \
                -o log_channels.json
           echo "Verifiziere heruntergeladene Datei..."
-          cat log_channels.json
           python -c "import json; json.load(open('log_channels.json'))"
 
-      # 6. Discord Bot ausführen
+      # 6. `warehouses.json` Datei aus dem GitHub Repository herunterladen
+      - name: Load warehouses.json from GitHub repository
+        run: |
+          curl -H "Authorization: token ${{ secrets.LOG_TOKEN }}" \
+               -L https://raw.githubusercontent.com/Wyld/Mein-DiscordBot/main/warehouses.json \
+               -o warehouses.json || echo "{}" > warehouses.json
+          echo "Verifiziere heruntergeladene Datei..."
+          python -c "import json; json.load(open('warehouses.json'))"
+
+      # 7. Discord Bot ausführen
       - name: Run Discord Bot
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
         run: |
           python main.py
 
-      # 7. Änderungen an `log_channels.json` speichern (falls notwendig)
-      - name: Save log_channels.json to GitHub repository
+      # 8. Änderungen an `log_channels.json` und `warehouses.json` speichern
+      - name: Save updated JSON files to GitHub repository
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          echo "# Update $(date)" >> log_channels.json
-          git add log_channels.json
-          git commit -m "Update log_channels.json"
+          echo "# Update $(date)" >> warehouses.json
+          git add log_channels.json warehouses.json
+          git commit -m "Update log_channels.json and warehouses.json"
           git push https://github.com/${{ secrets.LOG_TOKEN }}@github.com/Wyld/Mein-DiscordBot.git HEAD:main
         continue-on-error: true  # Falls keine Änderungen vorgenommen wurden, wird dieser Schritt übersprungen
