@@ -69,13 +69,14 @@ jobs:
           echo "# Update $(date)" >> warehouses.json
           
           # Überprüfen, ob es Änderungen gibt
-          git add log_channels.json warehouses.json
           git status  # Zeigt an, ob Git Änderungen erkennt
           git diff --cached  # Zeigt die Änderungen an, die für den Commit vorgesehen sind
-          
+
           # Falls Änderungen vorhanden sind, committen und pushen
+          git add log_channels.json warehouses.json
+          git status  # Vergewissert sich, dass die Dateien zum Commit vorgemerkt sind
           git commit -m "Update log_channels.json and warehouses.json" || echo "No changes to commit"
           
           # Falls Änderungen vorhanden sind, pushen
-          git push https://x-access-token:${{ secrets.LOG_TOKEN }}@github.com/Wyld/Mein-DiscordBot.git HEAD:main
+          git push https://x-access-token:${{ secrets.LOG_TOKEN }}@github.com/Wyld/Mein-DiscordBot.git HEAD:main || echo "Push failed"
         continue-on-error: true  # Falls keine Änderungen vorgenommen wurden, wird dieser Schritt übersprungen
