@@ -400,17 +400,6 @@ class ItemModal(discord.ui.Modal):
         except ValueError:
             await interaction.response.send_message("⚠️ Bitte geben Sie eine gültige Menge ein (nur Zahlen).", ephemeral=True)
 
-@bot.tree.command(name="warehouse", description="Zeigt den Inhalt des Lagers an")
-async def warehouse(interaction: discord.Interaction, warehouse_name: str) -> None:
-    """Show the warehouse and its options."""
-    if not await check_permissions(interaction, "warehouse"):
-        await safe_send(interaction, "⚠️ Du hast nicht die Berechtigung, diesen Befehl auszuführen.")
-        return
-
-    content = get_warehouse_content(warehouse_name)
-    view = WarehouseView(warehouse_name)
-    await interaction.response.send_message(content, view=view)
-
 @bot.event
 async def on_ready():
     global warehouses
