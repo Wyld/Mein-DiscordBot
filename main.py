@@ -1116,7 +1116,7 @@ async def on_ready():
                 except Exception as e:
                     print(f"⚠️ Fehler beim Senden an Kanal {channel.id}: {e}")
 
-#@bot.tree.command(name="set_log_channel", description="Setzt den Kanal für alle Log-Nachrichten.")
+@bot.tree.command(name="set_log_channel", description="Setzt den Kanal für alle Log-Nachrichten.")
 @app_commands.describe(channel="Der Kanal, in dem Logs gespeichert werden.")
 async def set_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     """
