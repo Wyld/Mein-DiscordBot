@@ -287,72 +287,72 @@ def load_warehouses() -> Dict[str, Dict[str, int]]:
     """Lädt die Lagerdaten aus der JSON-Datei."""
     try:
         with open(WAREHOUSES_FILE, "r") as file:
-            return json.load(file)
+            data = json.load(file)
+            print(f"✅ Lagerdaten erfolgreich geladen: {data}")
+            return data
     except FileNotFoundError:
-        return {}  # Falls die Datei nicht existiert, zurückgeben, dass keine Daten vorhanden sind
+        print("⚠️ Datei nicht gefunden. Ein neues Lager wird erstellt.")
+        return {}
     except json.JSONDecodeError:
-        print("⚠️ Fehler beim Laden der Lagerdaten. Datei ist beschädigt.")
+        print("❌ Fehler beim Parsen der Datei. Alte Datei könnte beschädigt sein.")
         return {}
 
 def save_warehouses() -> None:
     """Speichert die Lagerdaten in einer JSON-Datei."""
-    with open(WAREHOUSES_FILE, "w") as file:
-        json.dump(warehouses, file, indent=4)
+    try:
+        with open(WAREHOUSES_FILE, "w") as file:
+            json.dump(warehouses, file, indent=4)
+        print(f"✅ Lagerdaten erfolgreich gespeichert: {warehouses}")
+    except Exception as e:
+        print(f"❌ Fehler beim Speichern der Lagerdaten: {e}")
 
-warehouses = load_warehouses()  # Lädt die Daten beim Bot-Start
+# Initiales Laden der Lagerdaten
+warehouses = load_warehouses()
 
 
 def get_warehouse_content(warehouse_name: str) -> str:
-    """Retrieve the contents of the specified warehouse."""
+    """Zeigt den Inhalt des angegebenen Lagers an."""
     warehouse = warehouses.get(warehouse_name, {})
     if not warehouse:
         return "📦 Das Lager ist leer."
     return "\n".join([f"{name}: {quantity}x" for name, quantity in warehouse.items()])
 
+@bot.tree.command(name="warehouse", description="Zeigt den Inhalt des Lagers an.")
+async def warehouse(interaction: discord.Interaction, warehouse_name: str) -> None:
+    """Zeigt das Lager und die möglichen Aktionen."""
+    if not await check_permissions(interaction, "warehouse"):
+        await safe_send(interaction, "⚠️ Du hast nicht die Berechtigung, diesen Befehl auszuführen.")
+        return
+
+    content = get_warehouse_content(warehouse_name)
+    view = WarehouseView(warehouse_name)
+    await interaction.response.send_message(content, view=view)
+
 class WarehouseView(discord.ui.View):
-    """View for warehouse actions."""
+    """UI-View für die Lager-Aktionen."""
     def __init__(self, warehouse_name: str) -> None:
         super().__init__(timeout=180)
         self.warehouse_name = warehouse_name
 
     @discord.ui.button(label="Item hinzufügen", style=discord.ButtonStyle.green)
     async def add_item_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await check_permissions(interaction, "warehouse"):
-            await safe_send(interaction, "⚠️ Du hast nicht die Berechtigung, dieses Item hinzuzufügen.")
-            return
-        await self.open_add_item_modal(interaction)
-
-    @discord.ui.button(label="Item entfernen", style=discord.ButtonStyle.red)
-    async def remove_item_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await check_permissions(interaction, "warehouse"):
-            await safe_send(interaction, "⚠️ Du hast nicht die Berechtigung, dieses Item zu entfernen.")
-            return
-        await self.open_remove_item_modal(interaction)
-
-    @discord.ui.button(label="Lager leeren", style=discord.ButtonStyle.gray)
-    async def clear_warehouse_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not await check_permissions(interaction, "warehouse"):
-            await safe_send(interaction, "⚠️ Du hast nicht die Berechtigung, das Lager zu leeren.")
-            return
-        await self.clear_warehouse(interaction)
-
-    async def open_add_item_modal(self, interaction: discord.Interaction) -> None:
         modal = ItemModal("Item hinzufügen", self.warehouse_name)
         await interaction.response.send_modal(modal)
 
-    async def open_remove_item_modal(self, interaction: discord.Interaction) -> None:
+    @discord.ui.button(label="Item entfernen", style=discord.ButtonStyle.red)
+    async def remove_item_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         modal = ItemModal("Item entfernen", self.warehouse_name)
         await interaction.response.send_modal(modal)
 
-    async def clear_warehouse(self, interaction: discord.Interaction) -> None:
+    @discord.ui.button(label="Lager leeren", style=discord.ButtonStyle.gray)
+    async def clear_warehouse_button(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         warehouses[self.warehouse_name] = {}
-        save_warehouses()  # Speichern nach dem Leeren des Lagers
+        save_warehouses()  # Lagerdaten speichern
         await interaction.response.send_message(f"🗑️ Das Lager '{self.warehouse_name}' wurde geleert.")
-        await interaction.message.edit(content="📦 Das Lager ist leer.", view=self)  # Update the message
-
+        await interaction.message.edit(content="📦 Das Lager ist leer.", view=self)
 
 class ItemModal(discord.ui.Modal):
-    """Modal für das Hinzufügen und Entfernen von Items im Lager."""
+    """Modal für das Hinzufügen oder Entfernen von Items im Lager."""
     def __init__(self, action: str, warehouse_name: str) -> None:
         super().__init__(title=action)
         self.warehouse_name = warehouse_name
@@ -362,24 +362,21 @@ class ItemModal(discord.ui.Modal):
         self.add_item(self.quantity_input)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        """Handle das Hinzufügen und Entfernen von Items."""
+        """Bearbeitet das Hinzufügen oder Entfernen von Items."""
         item_name = self.item_name_input.value
         try:
             quantity = int(self.quantity_input.value)
             if quantity <= 0:
-                await interaction.response.send_message("⚠️ Bitte geben Sie eine Menge größer als 0 ein.",
-                                                        ephemeral=True)
+                await interaction.response.send_message("⚠️ Bitte geben Sie eine Menge größer als 0 ein.", ephemeral=True)
                 return
 
             if self.title == "Item hinzufügen":
                 if self.warehouse_name not in warehouses:
                     warehouses[self.warehouse_name] = {}
-                warehouses[self.warehouse_name][item_name] = warehouses[self.warehouse_name].get(item_name,
-                                                                                                 0) + quantity
-                save_warehouses()  # Speichern nach der Änderung
-                # Bestätigung im Kanal als Ephemeral-Nachricht
+                warehouses[self.warehouse_name][item_name] = warehouses[self.warehouse_name].get(item_name, 0) + quantity
+                save_warehouses()
                 await interaction.response.send_message(
-                    f"✅ {quantity}x '{item_name}' wurde zum Lager '{self.warehouse_name}' hinzugefügt.",
+                    f"✅ {quantity}x '{item_name}' wurde dem Lager '{self.warehouse_name}' hinzugefügt.",
                     ephemeral=True
                 )
             else:
@@ -390,20 +387,18 @@ class ItemModal(discord.ui.Modal):
                     await interaction.response.send_message("⚠️ Nicht genügend Items im Lager.", ephemeral=True)
                     return
                 warehouses[self.warehouse_name][item_name] -= quantity
-                save_warehouses()  # Speichern nach der Änderung
-                # Bestätigung im Kanal als Ephemeral-Nachricht
+                save_warehouses()
                 await interaction.response.send_message(
-                    f"✅ {quantity}x '{item_name}' wurde vom Lager '{self.warehouse_name}' entfernt.",
+                    f"✅ {quantity}x '{item_name}' wurde aus dem Lager '{self.warehouse_name}' entfernt.",
                     ephemeral=True
                 )
 
-            # Update der Lagerinhaltsnachricht im Kanal (falls gewünscht)
+            # Aktualisiere die Nachricht im Kanal
             content = get_warehouse_content(self.warehouse_name)
             await interaction.message.edit(content=content, view=WarehouseView(self.warehouse_name))
 
         except ValueError:
-            await interaction.response.send_message("⚠️ Bitte geben Sie eine gültige Menge ein (nur Zahlen).",
-                                                    ephemeral=True)
+            await interaction.response.send_message("⚠️ Bitte geben Sie eine gültige Menge ein (nur Zahlen).", ephemeral=True)
 
 @bot.tree.command(name="warehouse", description="Zeigt den Inhalt des Lagers an")
 async def warehouse(interaction: discord.Interaction, warehouse_name: str) -> None:
