@@ -65,9 +65,9 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           
-          # Änderungen vornehmen
-          echo "# Update $(date)" >> warehouses.json
-          
+          # Füge eine echte Änderung in warehouses.json hinzu
+          echo "Aktualisiere warehouses.json mit neuem Wert $(date)" >> warehouses.json
+
           # Überprüfen, ob es Änderungen gibt
           git status  # Zeigt an, ob Git Änderungen erkennt
           git diff --cached  # Zeigt die Änderungen an, die für den Commit vorgesehen sind
@@ -75,7 +75,7 @@ jobs:
           # Falls Änderungen vorhanden sind, committen und pushen
           git add log_channels.json warehouses.json
           git status  # Vergewissert sich, dass die Dateien zum Commit vorgemerkt sind
-          git commit -m "Update log_channels.json and warehouses.json" || echo "No changes to commit"
+          git commit -m "Update log_channels.json and warehouses.json with new data" || echo "No changes to commit"
           
           # Falls Änderungen vorhanden sind, pushen
           git push https://x-access-token:${{ secrets.LOG_TOKEN }}@github.com/Wyld/Mein-DiscordBot.git HEAD:main || echo "Push failed"
