@@ -288,13 +288,13 @@ def load_warehouses() -> Dict[str, Dict[str, int]]:
     try:
         with open(WAREHOUSES_FILE, "r") as file:
             data = json.load(file)
-            print(f"✅ Lagerdaten erfolgreich geladen: {data}")
+            print(f"✅ Lagerdaten erfolgreich geladen aus Datei: {data}")  # Debug-Ausgabe
             return data
     except FileNotFoundError:
-        print("⚠️ Datei nicht gefunden. Ein neues Lager wird erstellt.")
-        return {}
+        print("⚠️ Keine Lagerdaten gefunden. Erstelle neue Datei.")
+        return {}  # Falls die Datei nicht existiert
     except json.JSONDecodeError:
-        print("❌ Fehler beim Parsen der Datei. Alte Datei könnte beschädigt sein.")
+        print("⚠️ Fehler: Lagerdaten konnten nicht geladen werden. JSON-Datei ist beschädigt.")
         return {}
 
 def save_warehouses() -> None:
@@ -302,7 +302,7 @@ def save_warehouses() -> None:
     try:
         with open(WAREHOUSES_FILE, "w") as file:
             json.dump(warehouses, file, indent=4)
-        print(f"✅ Lagerdaten erfolgreich gespeichert: {warehouses}")
+        print(f"✅ Lagerdaten erfolgreich gespeichert: {warehouses}")  # Debug-Ausgabe
     except Exception as e:
         print(f"❌ Fehler beim Speichern der Lagerdaten: {e}")
 
