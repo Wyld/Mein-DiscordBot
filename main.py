@@ -1085,41 +1085,38 @@ def save_data(data, filename=DATA_FILE):
     try:
         with open(filename, "w") as file:
             json.dump(data, file, indent=4)
-        print(f"Log-Daten in {filename} gespeichert.")
+        print(f"✅ Log-Daten in {filename} gespeichert.")
     except Exception as e:
-        print(f"Fehler beim Speichern der Daten: {e}")
+        print(f"❌ Fehler beim Speichern der Daten: {e}")
 
 def load_data(filename=DATA_FILE):
     try:
         with open(filename, "r") as file:
             return json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
-        print(f"⚠️ Datei {filename} nicht gefunden oder beschädigt. Standardwerte verwenden.")
-        return {}
-
+    except FileNotFoundError:
+        print(f"⚠️ Datei {filename} nicht gefunden. Leere Datenstruktur wird verwendet.")
+    except json.JSONDecodeError:
+        print(f"❌ Fehler beim Parsen der Datei {filename}. Leere Datenstruktur wird verwendet.")
+    return {}
 
 log_channels = load_data()
+print(f"⚙️ Geladene Log-Kanäle: {log_channels}")
 
 @bot.event
 async def on_ready():
-    print("Bot ist bereit!")
-    guild_id = "1300469150107566100"  # Setze die ID deiner Guild
-    log_channel_id = log_channels.get(guild_id)
-    if log_channel_id:
-        log_channel = bot.get_channel(log_channel_id)
-        if log_channel:
-            try:
-                await log_channel.send("✅ Testnachricht: Bot kann in diesen Kanal senden.")
-                print(f"✅ Nachricht an {log_channel.name} gesendet.")
-            except Exception as e:
-                print(f"⚠️ Fehler beim Senden der Nachricht: {e}")
-        else:
-            print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
-    else:
-        print("⚠️ Kein Log-Kanal gesetzt.")
+    print("✅ Bot ist bereit!")
+    print(f"⚙️ Aktuelle Log-Channels: {log_channels}")
+    for guild_id, channel_id in log_channels.items():
+        guild = bot.get_guild(int(guild_id))
+        if guild:
+            channel = guild.get_channel(channel_id)
+            if channel:
+                try:
+                    await channel.send("✅ Testnachricht: Bot kann in diesen Kanal senden.")
+                except Exception as e:
+                    print(f"⚠️ Fehler beim Senden an Kanal {channel.id}: {e}")
 
-# Command: Log-Kanal setzen
-@bot.tree.command(name="set_log_channel", description="Setzt den Kanal für alle Log-Nachrichten.")
+#@bot.tree.command(name="set_log_channel", description="Setzt den Kanal für alle Log-Nachrichten.")
 @app_commands.describe(channel="Der Kanal, in dem Logs gespeichert werden.")
 async def set_log_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     """
@@ -1133,8 +1130,8 @@ async def set_log_channel(interaction: discord.Interaction, channel: discord.Tex
     log_channels[guild_id] = channel.id  # Log-Kanal für die Guild speichern
     save_data(log_channels)  # Änderungen in der JSON-Datei sichern
 
-    print(f"Log-Kanal für Guild {guild_id} gesetzt auf Kanal-ID {channel.id}")
-    await interaction.response.send_message(f"Log-Kanal erfolgreich auf {channel.mention} gesetzt!", ephemeral=True)
+    print(f"✅ Log-Kanal für Guild {guild_id} gesetzt auf Kanal-ID {channel.id}")
+    await interaction.response.send_message(f"✅ Log-Kanal erfolgreich auf {channel.mention} gesetzt!", ephemeral=True)
 
 
 # Log-Nachricht senden
