@@ -297,10 +297,15 @@ def load_warehouses() -> Dict[str, Dict[str, int]]:
         print("⚠️ Fehler: Lagerdaten konnten nicht geladen werden. JSON-Datei ist beschädigt.")
         return {}
 
+
 def save_warehouses() -> None:
     """Speichert die Lagerdaten in einer JSON-Datei."""
     try:
-        with open(WAREHOUSES_FILE, "w") as file:
+        # Überprüfe den aktuellen Arbeitsordner
+        print(f"Speicherort der Datei: {os.getcwd()}/{WAREHOUSES_FILE}")
+
+        # Datei im Schreibmodus öffnen
+        with open(WAREHOUSES_FILE, "w", encoding="utf-8") as file:
             json.dump(warehouses, file, indent=4)
         print(f"✅ Lagerdaten erfolgreich gespeichert: {warehouses}")  # Debug-Ausgabe
     except Exception as e:
