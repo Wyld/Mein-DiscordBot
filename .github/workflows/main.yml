@@ -58,13 +58,28 @@ jobs:
         run: |
           python main.py
 
-      # 8. Änderungen an `log_channels.json` und `warehouses.json` speichern
+      # 8. Änderungen an `log_channels.json` und `warehouses.json` speichern und in das GitHub-Repository pushen
       - name: Save updated JSON files to GitHub repository
         run: |
+          # Git konfigurieren
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          echo "# Update $(date)" >> warehouses.json
+          
+          # Füge eine echte Änderung in warehouses.json hinzu (füge ein JSON-Objekt hinzu)
+          echo '{"update_time": "$(date)"}' >> warehouses.json
+          
+          # Überprüfen, ob Änderungen an der Datei vorgenommen wurden
+          git status  # Zeigt an, ob Git Änderungen erkennt
+          git diff --cached  # Zeigt die Änderungen an, die für den Commit vorgesehen sind
+          
+          # Dateien zum Commit vormerken
           git add log_channels.json warehouses.json
-          git commit -m "Update log_channels.json and warehouses.json"
-          git push https://github.com/${{ secrets.LOG_TOKEN }}@github.com/Wyld/Mein-DiscordBot.git HEAD:main
+          git status  # Zeigt die Änderungen, die zum Commit vorgemerkt sind
+
+          # Git-Commit durchführen, falls Änderungen vorhanden sind
+          git commit -m "Update log_channels.json and warehouses.json with new data" || echo "No changes to commit"
+
+          # Falls Änderungen vorhanden sind, pushen
+          git push https://x-access-token:${{ secrets.LOG_TOKEN }}@github.com/Wyld/Mein-DiscordBot.git HEAD:main || echo "Push failed"
+        
         continue-on-error: true  # Falls keine Änderungen vorgenommen wurden, wird dieser Schritt übersprungen
