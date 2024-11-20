@@ -65,14 +65,17 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           
-          # Ändern der `warehouses.json` und `log_channels.json` falls nötig
+          # Änderungen vornehmen
           echo "# Update $(date)" >> warehouses.json
           
-          # Git-Status prüfen, bevor Änderungen gepusht werden
+          # Überprüfen, ob es Änderungen gibt
           git add log_channels.json warehouses.json
-          git diff --cached || echo "No changes to commit"
+          git status  # Zeigt an, ob Git Änderungen erkennt
+          git diff --cached  # Zeigt die Änderungen an, die für den Commit vorgesehen sind
           
-          # Falls Änderungen vorliegen, committen und pushen
+          # Falls Änderungen vorhanden sind, committen und pushen
           git commit -m "Update log_channels.json and warehouses.json" || echo "No changes to commit"
+          
+          # Falls Änderungen vorhanden sind, pushen
           git push https://x-access-token:${{ secrets.LOG_TOKEN }}@github.com/Wyld/Mein-DiscordBot.git HEAD:main
         continue-on-error: true  # Falls keine Änderungen vorgenommen wurden, wird dieser Schritt übersprungen
