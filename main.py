@@ -31,12 +31,16 @@ from firebase_admin import credentials, firestore, db
 
 keep_alive()
 
-# Firebase Admin SDK initialisieren
-cred = credentials.Certificate(r"C:\Users\julie\Documents\dc-bot-dce0a-firebase-adminsdk-q5hrv-ddfb77a70d.json")
-firebase_admin.initialize_app(cred)
-
-# Zugriff auf Firestore-Datenbank
-db = firestore.client()
+# Initialisiere Firebase
+try:
+    # Lade das Firebase-Zertifikat
+    cred = credentials.Certificate('firebase_credentials.json')
+    firebase_admin.initialize_app(cred)
+    db = firestore.client()
+    print("Firebase erfolgreich initialisiert.")
+except Exception as e:
+    print(f"Fehler bei der Firebase-Initialisierung: {e}")
+    db = None
 
 # Firebase-Referenz für die Sammlung, in der du die Reaktionsrollen speicherst
 reaction_roles_ref = db.collection('reaction_roles')  # Definiere die Collection
