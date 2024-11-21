@@ -14,24 +14,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2. GitHub Token einrichten (für den Zugriff auf private Repositories)
-      - name: Set up GitHub Token
-        env:
-          GITHUB_TOKEN: ${{ secrets.LOG_TOKEN }}
-        run: |
-          echo "Setting up GitHub token for access to the repository"
-
-      # 3. Python einrichten
+      # 2. Python einrichten
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      # 4. Abhängigkeiten installieren
+      # 3. Abhängigkeiten installieren
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      # 4. `firebase_credentials.json` Datei bereitstellen
+      - name: Set up Firebase Credentials
+        env:
+          FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
+        run: |
+          echo "${FIREBASE_CREDENTIALS}" > firebase_credentials.json
+          echo "Firebase-Zertifikatsdatei erfolgreich eingerichtet."
 
       # 5. `log_channels.json` Datei aus dem GitHub Repository herunterladen
       - name: Load log_channels.json from GitHub repository
@@ -65,21 +66,9 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           
-          # Füge eine echte Änderung in warehouses.json hinzu (füge ein JSON-Objekt hinzu)
-          echo '{"update_time": "$(date)"}' >> warehouses.json
-          
-          # Überprüfen, ob Änderungen an der Datei vorgenommen wurden
-          git status  # Zeigt an, ob Git Änderungen erkennt
-          git diff --cached  # Zeigt die Änderungen an, die für den Commit vorgesehen sind
-          
-          # Dateien zum Commit vormerken
-          git add log_channels.json warehouses.json
-          git status  # Zeigt die Änderungen, die zum Commit vorgemerkt sind
+          # Änderungen prüfen und pushen
+          git add log_channels.json warehouses.json || echo "Nichts zum Commit verfügbar."
+          git commit -m "Update JSON files" || echo "Keine Änderungen zum Commit."
+          git push https://x-access-token:${{ secrets.LOG_TOKEN }}@github.com/Wyld/Mein-DiscordBot.git HEAD:main || echo "Push fehlgeschlagen"
 
-          # Git-Commit durchführen, falls Änderungen vorhanden sind
-          git commit -m "Update log_channels.json and warehouses.json with new data" || echo "No changes to commit"
-
-          # Falls Änderungen vorhanden sind, pushen
-          git push https://x-access-token:${{ secrets.LOG_TOKEN }}@github.com/Wyld/Mein-DiscordBot.git HEAD:main || echo "Push failed"
-        
         continue-on-error: true  # Falls keine Änderungen vorgenommen wurden, wird dieser Schritt übersprungen
