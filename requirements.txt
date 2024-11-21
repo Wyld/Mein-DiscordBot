@@ -28,3 +28,4 @@ certifi~=2024.8.30
 urllib3~=2.2.3
 charset-normalizer~=3.4.0
 Flask~=3.0.3
+firebase-admin
