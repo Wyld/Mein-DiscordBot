@@ -26,9 +26,23 @@ from flask import Flask
 import threading
 import json
 from datetime import datetime
+import firebase_admin
+from firebase_admin import credentials, firestore, db
 
 keep_alive()
 
+# Firebase Admin SDK initialisieren
+cred = credentials.Certificate(r"C:\Users\julie\Documents\dc-bot-dce0a-firebase-adminsdk-q5hrv-ddfb77a70d.json")
+firebase_admin.initialize_app(cred)
+
+# Zugriff auf Firestore-Datenbank
+db = firestore.client()
+
+# Firebase-Referenz für die Sammlung, in der du die Reaktionsrollen speicherst
+reaction_roles_ref = db.collection('reaction_roles')  # Definiere die Collection
+
+# Globale Variable für die Reaktionsrollen-Daten
+reaction_roles_data = {}
 # Lade Umgebungsvariablen aus .env-Datei
 load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
@@ -45,6 +59,7 @@ intents.reactions = True
 intents.members = True  # Berechtigung für Mitglieder aktivieren
 intents.guilds = True # Um mit Gilden zu arbeiten
 intents.guild_messages = True
+intents.guild_reactions = True
 intents.presences = True  # Aktiviert den Zugriff auf den Status
 intents.voice_states = True  # Um Sprachstatus-Updates zu empfangen
 intents.dm_messages = True
@@ -2093,39 +2108,15 @@ async def slap(interaction: discord.Interaction, user: discord.Member):
 async def dance(interaction: discord.Interaction):
     await interaction.response.send_message(f"{interaction.user.mention} tanzt! 💃🕺")
 
-# JSON-Datei zum Speichern der Reaction Roles
-REACTION_ROLES_FILE = "reaction_roles.json"
 
-# Daten speichern
-def save_reaction_roles(data, filename=REACTION_ROLES_FILE):
-    with open(filename, "w") as file:
-        json.dump(data, file, indent=4)
-
-# Daten laden
-def load_reaction_roles(filename=REACTION_ROLES_FILE):
-    try:
-        with open(filename, "r") as file:
-            return json.load(file)
-    except FileNotFoundError:
-        return {}  # Gibt ein leeres Dict zurück, falls die Datei nicht existiert
-
-reaction_roles_data = load_reaction_roles()
-
-class ReactionRolesView(discord.ui.View):
-    def __init__(self, roles: list[discord.Role], emojis: list[str]):
-        super().__init__(timeout=None)
-        self.roles = roles
-        self.emojis = emojis
-        for role, emoji in zip(roles, emojis):
-            self.add_item(RoleButton(role, emoji))
-
-
+# Button für Reaktionsrollen
 class RoleButton(discord.ui.Button):
     def __init__(self, role: discord.Role, emoji: str):
         super().__init__(label=role.name, style=discord.ButtonStyle.primary, emoji=emoji)
         self.role = role
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: discord.Interaction):
+        print(f"Interaktion erhalten: {interaction.user} hat auf {self.role.name} geklickt.")  # Debugging-Ausgabe
         member = interaction.user
         if self.role in member.roles:
             await member.remove_roles(self.role)
@@ -2139,13 +2130,82 @@ class RoleButton(discord.ui.Button):
             )
 
 
+# Reaktionsrollen-View mit Buttons
+class ReactionRolesView(discord.ui.View):
+    def __init__(self, roles: list[discord.Role], emojis: list[str]):
+        super().__init__(timeout=180)  # Timeout auf 3 Minuten setzen
+        self.roles = roles
+        self.emojis = emojis
+        print(f"View initialisiert mit {len(roles)} Rollen und {len(emojis)} Emojis")  # Debugging-Ausgabe
+        # Füge die Buttons zur View hinzu
+        for role, emoji in zip(roles, emojis):
+            self.add_item(RoleButton(role, emoji))
+
+    async def on_timeout(self):
+        print("Die View ist abgelaufen.")  # Debugging-Ausgabe
+
+
+# Speichern der Reaktionsrollen in Firebase
+def save_reaction_roles(data):
+    try:
+        reaction_roles_ref.document("reaction_roles_data").set(data)
+        print("Reaktionsrollen-Daten erfolgreich gespeichert.")
+    except Exception as e:
+        print(f"Fehler beim Speichern der Reaktionsrollen-Daten: {e}")
+
+
+# Lade die gespeicherten Reaktionsrollen-Daten aus Firebase
+def load_reaction_roles():
+    try:
+        reaction_roles_doc = reaction_roles_ref.document("reaction_roles_data").get()
+        if reaction_roles_doc.exists:
+            data = reaction_roles_doc.to_dict()
+            print(f"Geladene Reaktionsrollen-Daten: {data}")  # Debugging-Ausgabe
+            return data
+        else:
+            print("Keine gespeicherten Reaktionsrollen-Daten gefunden.")
+            return {}
+    except Exception as e:
+        print(f"Fehler beim Laden der Reaktionsrollen-Daten: {e}")
+        return {}
+
+
+# Asynchrone Funktion zum Erstellen und Verknüpfen der neuen Nachricht
+async def refresh_message(channel, message_id, roles, emojis):
+    try:
+        message = await channel.fetch_message(message_id)
+        if message:
+            print(f"Nachricht {message.id} gefunden.")  # Debugging-Ausgabe
+            await message.delete()
+
+        view = ReactionRolesView(roles, emojis)
+        new_message = await channel.send(
+            "Reaktionsrollen: Klicke auf die Buttons, um Rollen zu erhalten oder zu entfernen.",
+            view=view
+        )
+
+        print(f"Neue Nachricht {new_message.id} wurde gesendet.")  # Debugging-Ausgabe
+        return new_message.id
+
+    except discord.errors.NotFound:
+        print(f"Fehler: Nachricht mit ID {message_id} konnte nicht gefunden werden.")
+        return None
+    except Exception as e:
+        print(f"Fehler beim Erstellen der neuen Nachricht: {e}")
+        return None
+
+
+# Haupt-Handler für das Kommando reactionroles
 @bot.tree.command(name="reactionroles", description="Erstellt eine Reaktionsrollen-Auswahl mit Buttons.")
 async def reactionroles(interaction: discord.Interaction, roles: str, emojis: str):
-    # Zerlege die Rollen und Emojis in Listen
-    role_mentions = roles.split()  # Trenne Rollen durch Leerzeichen
-    emoji_list = emojis.split()   # Trenne Emojis durch Leerzeichen
+    global reaction_roles_data
 
-    # Überprüfe, ob die Anzahl der Rollen mit der Anzahl der Emojis übereinstimmt
+    print(f"reactionroles-Befehl aufgerufen mit {roles} und {emojis}")  # Debugging-Ausgabe
+
+    # Zerlege die Rollen und Emojis in Listen
+    role_mentions = roles.split()
+    emoji_list = emojis.split()
+
     if len(role_mentions) != len(emoji_list):
         await interaction.response.send_message(
             "⚠️ Die Anzahl der Rollen muss mit der Anzahl der Emojis übereinstimmen.",
@@ -2153,11 +2213,9 @@ async def reactionroles(interaction: discord.Interaction, roles: str, emojis: st
         )
         return
 
-    # Liste der tatsächlichen discord.Role-Objekte
     role_objects = []
     for role_str in role_mentions:
         try:
-            # Entferne die Zeichen "<@&>" und konvertiere die ID zu einer Zahl
             role_id = int(role_str.strip("<@&>"))
             role = interaction.guild.get_role(role_id)
             if not role:
@@ -2170,60 +2228,70 @@ async def reactionroles(interaction: discord.Interaction, roles: str, emojis: st
             )
             return
 
-    # Erstelle die View mit den Buttons
-    view = ReactionRolesView(role_objects, emoji_list)
-    message = await interaction.response.send_message(
+    try:
+        view = ReactionRolesView(role_objects, emoji_list)
+    except Exception as e:
+        await interaction.response.send_message(
+            f"⚠️ Fehler bei der Erstellung der View: {e}",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.send_message(
         "Reaktionsrollen: Klicke auf die Buttons, um Rollen zu erhalten oder zu entfernen.",
         view=view
     )
+    message = await interaction.original_response()
 
-    # Nachricht-ID speichern
-    message_id = (await message.original_response()).id
-    reaction_roles_data[str(message_id)] = {
+    # Speichern der Reaktionsrollen-Daten
+    reaction_roles_data[str(message.id)] = {
+        "channel_id": interaction.channel.id,
         "roles": [role.id for role in role_objects],
         "emojis": emoji_list
     }
+
     save_reaction_roles(reaction_roles_data)
 
+
+# Event-Handler für den Bot-Start
 @bot.event
 async def on_ready():
-    print(f"Bot ist bereit! Eingeloggt als {bot.user}")
+    print("Bot ist bereit!")
 
-    # Reaction Roles wiederherstellen
+    # Reaktionsrollen-Daten aus Firebase laden
+    global reaction_roles_data
+    reaction_roles_data = load_reaction_roles()  # Stelle sicher, dass diese Methode korrekt funktioniert
+
+    # Verarbeite jede gespeicherte Nachricht, wenn der Bot neu startet
     for message_id, data in reaction_roles_data.items():
-        try:
-            channel = bot.get_channel(int(data.get("channel_id")))  # Optional, falls channel gespeichert
-            if not channel:
-                continue
-            message = await channel.fetch_message(int(message_id))
-            roles = [message.guild.get_role(role_id) for role_id in data["roles"]]
-            emojis = data["emojis"]
+        print(f"Verarbeite Nachricht {message_id}...")
 
-            # View wiederherstellen
-            view = ReactionRolesView(roles, emojis)
-            await message.edit(view=view)
-        except Exception as e:
-            print(f"Fehler beim Wiederherstellen von Reaction Roles für Nachricht {message_id}: {e}")
+        # Hole den Channel mit der gespeicherten channel_id
+        channel = bot.get_channel(data["channel_id"])
+        if channel:
+            try:
+                # Verwende die refresh_message-Methode, um die Reaktionsrollen-Buttons wiederherzustellen
+                new_message_id = await refresh_message(
+                    channel, message_id,
+                    [channel.guild.get_role(role_id) for role_id in data["roles"]],
+                    data["emojis"]
+                )
 
+                if new_message_id:
+                    # Speichere die neue Nachricht-ID und den Status der Reaktionsrollen
+                    reaction_roles_data[str(new_message_id)] = {
+                        "channel_id": channel.id,
+                        "roles": data["roles"],
+                        "emojis": data["emojis"]
+                    }
 
-# Event: Synchronisiere den Command-Tree beim Start des Bots
-@bot.event
-async def on_ready():
-    print(f'Bot ist eingeloggt als {bot.user}!')
-    try:
-        # Synchronisiere die Befehle mit dem Discord-Server
-        await bot.tree.sync()
-        print("Slash-Commands synchronisiert.")
-    except Exception as e:
-        print(f"Fehler beim Synchronisieren der Slash-Commands: {e}")
+                    # Speichern der aktualisierten Daten in Firebase
+                    save_reaction_roles(reaction_roles_data)
 
-@bot.event
-async def on_ready():
-    print(f'{bot.user} ist online und bereit!')
-
-@bot.command()
-async def ping(ctx):
-    await ctx.send('Pong!')
+            except discord.errors.NotFound:
+                print(f"Fehler: Nachricht mit ID {message_id} konnte nicht gefunden werden.")
+            except Exception as e:
+                print(f"Fehler beim Bearbeiten der Nachricht {message_id}: {e}")
 
 # Flask Setup
 app = Flask(__name__)
