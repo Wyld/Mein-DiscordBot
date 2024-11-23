@@ -1259,14 +1259,66 @@ async def on_member_unban(guild: discord.Guild, user: discord.User):
 
 
 @bot.event
-async def on_member_kick(member: discord.Member):
+async def on_member_join(member: discord.Member):
     """
-    Event: Mitglied gekickt.
+    Event: Ein Mitglied tritt dem Server bei.
+    Protokolliert die verwendete Einladung.
     """
-    print(f"Event ausgelöst: Mitglied gekickt ({member}).")
+    guild = member.guild
+    guild_id = guild.id
+
+    # Speichere aktuelle Einladungen vor dem Join
+    if not hasattr(bot, 'invites'):
+        bot.invites = {}
+
+    before_invites = bot.invites.get(guild.id, [])
+    after_invites = await guild.invites()
+
+    # Vergleiche Einladungen, um die genutzte zu finden
+    used_invite = None
+    for invite in after_invites:
+        for before_invite in before_invites:
+            if invite.code == before_invite.code and invite.uses > before_invite.uses:
+                used_invite = invite
+                break
+
+    bot.invites[guild.id] = after_invites  # Update die gespeicherten Einladungen
+
+    # Loggen, wenn eine Einladung gefunden wurde
+    if used_invite:
+        description = (
+            f"**Mitglied:** {member.mention} ({member.id})\n"
+            f"**Einladungscode:** {used_invite.code}\n"
+            f"**Erstellt von:** {used_invite.inviter.mention} ({used_invite.inviter.id})\n"
+            f"**Verwendungen:** {used_invite.uses}"
+        )
+        await logger.send_embed_log(
+            guild_id,
+            title="📥 Neues Mitglied über Einladung beigetreten",
+            description=description
+        )
+    else:
+        # Falls keine Einladung gefunden wurde
+        await logger.send_embed_log(
+            guild_id,
+            title="📥 Neues Mitglied beigetreten",
+            description=f"**Mitglied:** {member.mention} ({member.id})\nEinladung konnte nicht ermittelt werden."
+        )
+
+
+@bot.event
+async def on_member_remove(member: discord.Member):
+    """
+    Event: Mitglied hat den Server verlassen oder wurde gekickt.
+    Prüft, ob der Benutzer gekickt wurde, indem die Audit-Logs analysiert werden.
+    """
+    print(f"Event ausgelöst: Mitglied entfernt ({member}).")
     guild_id = member.guild.id
+
+    # Audit-Logs analysieren, um festzustellen, ob der Benutzer gekickt wurde
     async for entry in member.guild.audit_logs(limit=1, action=discord.AuditLogAction.kick):
         if entry.target.id == member.id:
+            # Benutzer wurde gekickt
             description = (
                 f"**Mitglied:** {member.mention} ({member.id})\n"
                 f"🔧 **Durchgeführt von:** {entry.user.mention}\n"
@@ -1277,32 +1329,10 @@ async def on_member_kick(member: discord.Member):
                 title="👢 Mitglied gekickt",
                 description=description
             )
-            break
+            return  # Log für Kick abgeschlossen, Event hier beenden
 
-
-@bot.event
-async def on_member_join(member: discord.Member):
-    """
-    Event: Mitglied tritt bei.
-    """
-    print(f"Event ausgelöst: Mitglied tritt bei ({member}).")
-    guild_id = member.guild.id
-    description = f"**Mitglied:** {member.mention}"
-    await logger.send_embed_log(
-        guild_id,
-        title="🎉 Neues Mitglied",
-        description=description
-    )
-
-
-@bot.event
-async def on_member_remove(member: discord.Member):
-    """
-    Event: Mitglied verlässt den Server.
-    """
-    print(f"Event ausgelöst: Mitglied verlässt den Server ({member}).")
-    guild_id = member.guild.id
-    description = f"**Mitglied:** {member.mention}"
+    # Wenn kein Kick in den Audit-Logs gefunden wurde, hat das Mitglied freiwillig verlassen
+    description = f"**Mitglied:** {member.mention} ({member.id})"
     await logger.send_embed_log(
         guild_id,
         title="👋 Mitglied verlassen",
@@ -1441,40 +1471,90 @@ async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
 async def on_guild_channel_update(before: discord.abc.GuildChannel, after: discord.abc.GuildChannel):
     """
     Event: Änderungen an einem Kanal in der Guild.
-    Wird ausgelöst, wenn sich ein Kanal aktualisiert (z. B. Name, Berechtigungen).
+    Wird ausgelöst, wenn sich ein Kanal aktualisiert (z. B. Name, Berechtigungen, Position, Kategorie).
     """
-    if before.overwrites != after.overwrites:  # Überprüft, ob die Berechtigungen geändert wurden
-        guild_id = after.guild.id
-        channel_name = after.name
-        description = f"**Kanal:** {channel_name}\n"
+    guild_id = after.guild.id
+    changes = []
 
-        changes = []
+    # Überprüfen, ob der Kanalname geändert wurde
+    if before.name != after.name:
+        changes.append(f"**Name:** {before.name} → {after.name}")
+
+    # Überprüfen, ob die Kanalposition geändert wurde
+    if before.position != after.position:
+        changes.append(f"**Position:** {before.position} → {after.position}")
+
+    # Überprüfen, ob der Kanal die Kategorie gewechselt hat
+    if before.category != after.category:
+        before_category = before.category.name if before.category else "Keine"
+        after_category = after.category.name if after.category else "Keine"
+        changes.append(f"**Kategorie:** {before_category} → {after_category}")
+
+    # Überprüfen, ob der Kanaltyp geändert wurde
+    if before.type != after.type:
+        changes.append(f"**Kanaltyp:** {before.type} → {after.type}")
+
+    # Überprüfen, ob Berechtigungen geändert wurden
+    if before.overwrites != after.overwrites:  # Berechtigungen haben sich geändert
+        channel_name = after.name
+        changes.append(f"🔧 **Berechtigungsänderungen im Kanal:** {channel_name}")
+
+        perm_changes = []
 
         # Prüfe jede Rolle/Benutzer auf Änderungen
         for target, perms_before in before.overwrites.items():
             perms_after = after.overwrites.get(target)
             if perms_before != perms_after:
                 diff = compare_overwrites(perms_before, perms_after)
-                changes.append(f"**{target}**:\n{diff}")
+                perm_changes.append(f"**{target}**:\n{diff}")
 
         # Hinzufügen neuer Berechtigungen
         for target, perms_after in after.overwrites.items():
             if target not in before.overwrites:
                 diff = compare_overwrites(None, perms_after)
-                changes.append(f"**{target}** (neu hinzugefügt):\n{diff}")
+                perm_changes.append(f"**{target}** (neu hinzugefügt):\n{diff}")
 
-        # Log-Nachricht zusammenstellen
-        if changes:
-            description += "**Berechtigungsänderungen:**\n" + "\n\n".join(changes)
-        else:
-            description += "Keine spezifischen Änderungen erfasst."
+        # Nur Berechtigungsänderungen hinzufügen, wenn vorhanden
+        if perm_changes:
+            changes.append("\n\n".join(perm_changes))
 
-        # Log-Nachricht senden
-        await logger.send_embed_log(
-            guild_id,
-            title="🔧 Kanal-Berechtigungen geändert",
-            description=description
-        )
+    # Protokoll nur senden, wenn Änderungen vorliegen
+    if changes:
+        async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
+            executor = entry.user
+            description = "\n".join(changes)
+            await logger.send_embed_log(
+                guild_id,
+                title="✏️ Kanal bearbeitet",
+                description=f"{description}\n🔧 **Bearbeitet von:** {executor.mention}"
+            )
+            print(f"✅ Änderungen am Kanal {after.name} protokolliert.")
+            break
+
+
+def compare_overwrites(before: discord.PermissionOverwrite, after: discord.PermissionOverwrite) -> str:
+    """
+    Vergleichsfunktion für Kanalberechtigungen.
+    Gibt die Änderungen in den Berechtigungen als Text zurück.
+    """
+    diff = []
+    perms = [
+        "view_channel", "send_messages", "read_messages", "connect", "speak",
+        "manage_channels", "manage_permissions", "manage_messages", "priority_speaker",
+        "stream", "add_reactions", "attach_files", "embed_links", "mention_everyone"
+    ]
+
+    before_dict = before.pair() if before else (None, None)
+    after_dict = after.pair() if after else (None, None)
+
+    for perm in perms:
+        before_value = getattr(before_dict[0], perm, None) or getattr(before_dict[1], perm, None)
+        after_value = getattr(after_dict[0], perm, None) or getattr(after_dict[1], perm, None)
+
+        if before_value != after_value:
+            diff.append(f"🔸 {perm.replace('_', ' ').title()}: {before_value} → {after_value}")
+
+    return "\n".join(diff) if diff else "Keine Änderungen."
 
 
 def compare_overwrites(before: discord.PermissionOverwrite, after: discord.PermissionOverwrite) -> str:
