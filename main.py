@@ -1216,30 +1216,6 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
 
 
 @bot.event
-async def on_member_update(before: discord.Member, after: discord.Member):
-    """
-    Event: Timeout gesetzt oder entfernt.
-    """
-    if before.timed_out_until != after.timed_out_until:
-        guild_id = after.guild.id
-        if after.timed_out_until:  # Timeout gesetzt
-            title = "⏱️ Timeout gesetzt"
-            description = (
-                f"**Mitglied:** {after.mention}\n"
-                f"**Ende:** <t:{int(after.timed_out_until.timestamp())}:F>"
-            )
-        else:  # Timeout entfernt
-            title = "⏱️ Timeout entfernt"
-            description = f"**Mitglied:** {after.mention}"
-
-        await logger.send_embed_log(
-            guild_id,
-            title=title,
-            description=description
-        )
-
-
-@bot.event
 async def on_member_ban(guild: discord.Guild, user: discord.User):
     """
     Event: Mitglied gebannt.
@@ -1403,58 +1379,6 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
         await logger.send_embed_log(guild_id, "🔊 Sprachkanal-Update", description)
 
 
-
-@bot.event
-async def on_member_update(before: discord.Member, after: discord.Member):
-    """
-    Event: Rollenänderungen eines Mitglieds.
-    Protokolliert, wenn einem Mitglied eine Rolle hinzugefügt oder entfernt wird.
-    Auch der Executor (wer die Änderung vorgenommen hat) wird erfasst.
-    """
-    guild_id = after.guild.id
-    changes = []
-
-    # Rollen, die hinzugefügt wurden
-    added_roles = [role for role in after.roles if role not in before.roles]
-    # Rollen, die entfernt wurden
-    removed_roles = [role for role in before.roles if role not in after.roles]
-
-    try:
-        # Rollen hinzugefügt
-        for role in added_roles:
-            async for entry in after.guild.audit_logs(action=discord.AuditLogAction.member_role_update, limit=1):
-                if entry.target == after and role in entry.after.roles:
-                    executor = entry.user
-                    changes.append(f"➕ **Rolle hinzugefügt:** {role.mention}\n🔧 **Hinzugefügt von:** {executor.mention}")
-                    break
-
-        # Rollen entfernt
-        for role in removed_roles:
-            async for entry in after.guild.audit_logs(action=discord.AuditLogAction.member_role_update, limit=1):
-                if entry.target == after and role in entry.before.roles:
-                    executor = entry.user
-                    changes.append(f"➖ **Rolle entfernt:** {role.mention}\n🔧 **Entfernt von:** {executor.mention}")
-                    break
-
-        # Loggen, wenn Änderungen vorliegen
-        if changes:
-            description = "\n\n".join(changes)
-            await logger.send_embed_log(
-                guild_id,
-                title=f"🎭 Rollenänderungen für {after}",
-                description=description
-            )
-            print(f"✅ Rollenänderungen für {after} protokolliert.")
-
-    except Exception as e:
-        print(f"⚠️ Fehler beim Verarbeiten der Rollenänderungen für {after}: {e}")
-        await logger.send_embed_log(
-            guild_id,
-            title="⚠️ Fehler bei Rollenänderung",
-            description=f"Es trat ein Fehler bei der Protokollierung von Rollenänderungen für {after.mention} auf."
-        )
-
-
 @bot.event
 async def on_guild_channel_create(channel: discord.abc.GuildChannel):
     """
@@ -1516,58 +1440,111 @@ async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
 @bot.event
 async def on_guild_channel_update(before: discord.abc.GuildChannel, after: discord.abc.GuildChannel):
     """
-    Event: Kanal wird bearbeitet.
+    Event: Änderungen an einem Kanal in der Guild.
+    Wird ausgelöst, wenn sich ein Kanal aktualisiert (z. B. Name, Berechtigungen).
     """
-    guild_id = before.guild.id
+    if before.overwrites != after.overwrites:  # Überprüft, ob die Berechtigungen geändert wurden
+        guild_id = after.guild.id
+        channel_name = after.name
+        description = f"**Kanal:** {channel_name}\n"
+
+        changes = []
+
+        # Prüfe jede Rolle/Benutzer auf Änderungen
+        for target, perms_before in before.overwrites.items():
+            perms_after = after.overwrites.get(target)
+            if perms_before != perms_after:
+                diff = compare_overwrites(perms_before, perms_after)
+                changes.append(f"**{target}**:\n{diff}")
+
+        # Hinzufügen neuer Berechtigungen
+        for target, perms_after in after.overwrites.items():
+            if target not in before.overwrites:
+                diff = compare_overwrites(None, perms_after)
+                changes.append(f"**{target}** (neu hinzugefügt):\n{diff}")
+
+        # Log-Nachricht zusammenstellen
+        if changes:
+            description += "**Berechtigungsänderungen:**\n" + "\n\n".join(changes)
+        else:
+            description += "Keine spezifischen Änderungen erfasst."
+
+        # Log-Nachricht senden
+        await logger.send_embed_log(
+            guild_id,
+            title="🔧 Kanal-Berechtigungen geändert",
+            description=description
+        )
+
+
+def compare_overwrites(before: discord.PermissionOverwrite, after: discord.PermissionOverwrite) -> str:
+    """
+    Vergleicht zwei PermissionOverwrite-Objekte und gibt eine lesbare Liste der Änderungen zurück.
+    """
     changes = []
 
-    if before.name != after.name:
-        changes.append(f"**Name:** {before.name} → {after.name}")
+    # Falls vorher keine Berechtigungen existieren
+    if before is None:
+        before_perms = {}
+    else:
+        before_perms = {perm: value for perm, value in before}
 
-    if before.position != after.position:
-        changes.append(f"**Position:** {before.position} → {after.position}")
+    # Falls nachher keine Berechtigungen existieren
+    if after is None:
+        after_perms = {}
+    else:
+        after_perms = {perm: value for perm, value in after}
 
-    if before.category != after.category:
-        changes.append(f"**Kategorie:** {before.category.name if before.category else 'Keine'} → "
-                       f"{after.category.name if after.category else 'Keine'}")
+    # Vergleiche Berechtigungen
+    all_keys = set(before_perms.keys()).union(after_perms.keys())
+    for perm in all_keys:
+        before_value = before_perms.get(perm, None)
+        after_value = after_perms.get(perm, None)
+        if before_value != after_value:
+            changes.append(f"- `{perm}`: {before_value} → {after_value}")
 
-    if changes:
-        async for entry in before.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
-            executor = entry.user
-            description = "\n".join(changes)
-            await logger.send_embed_log(
-                guild_id,
-                title="✏️ Kanal bearbeitet",
-                description=f"{description}\n🔧 Bearbeitet von: {executor.mention}"
-            )
-            break
+    return "\n".join(changes)
 
 
 @bot.event
 async def on_guild_emojis_update(guild: discord.Guild, before: list, after: list):
     """
-    Event: Emojis werden hinzugefügt oder entfernt.
+    Event: Emojis wurden hinzugefügt, entfernt oder bearbeitet.
     """
     guild_id = guild.id
     added_emojis = [emoji for emoji in after if emoji not in before]
     removed_emojis = [emoji for emoji in before if emoji not in after]
+    changes = []
 
+    # Hinzugefügte Emojis
     for emoji in added_emojis:
-        await logger.send_embed_log(
-            guild_id,
-            title="✨ Emoji hinzugefügt",
-            description=f"**Emoji:** {emoji}\nServer: {guild.name}"
-        )
+        changes.append(f"➕ **Emoji hinzugefügt:** {emoji} (`:{emoji.name}:`)")
 
+    # Entfernte Emojis
     for emoji in removed_emojis:
         async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.emoji_delete):
-            executor = entry.user
-            await logger.send_embed_log(
-                guild_id,
-                title="❌ Emoji entfernt",
-                description=f"**Emoji:** {emoji.name}\n🔧 Entfernt von: {executor.mention}"
-            )
-            break
+            if entry.target == emoji:
+                executor = entry.user
+                changes.append(f"❌ **Emoji entfernt:** `{emoji.name}` (von {executor.mention})")
+                break
+        else:
+            changes.append(f"❌ **Emoji entfernt:** `{emoji.name}` (Executor unbekannt)")
+
+    # Geänderte Emojis (Name oder Bild geändert)
+    for emoji in before:
+        for updated_emoji in after:
+            if emoji.id == updated_emoji.id and (emoji.name != updated_emoji.name or emoji.url != updated_emoji.url):
+                changes.append(f"🛠️ **Emoji geändert:** `{emoji.name}` → `{updated_emoji.name}`")
+
+    # Protokollieren, wenn Änderungen vorhanden sind
+    if changes:
+        description = "\n".join(changes)
+        await logger.send_embed_log(
+            guild_id,
+            title="😃 Emoji-Änderungen",
+            description=description
+        )
+        print(f"✅ Emoji-Änderungen in {guild.name} protokolliert.")
 
 
 @bot.event
@@ -1586,14 +1563,30 @@ async def on_reaction_add(reaction: discord.Reaction, user: discord.User):
 @bot.event
 async def on_reaction_remove(reaction: discord.Reaction, user: discord.User):
     """
-    Event: Reaktion entfernt.
+    Event: Ein Benutzer entfernt eine Reaktion von einer Nachricht.
     """
     guild_id = reaction.message.guild.id
+
+    # Nachricht und Kanalinformationen
+    channel = reaction.message.channel
+    message_url = f"https://discord.com/channels/{guild_id}/{channel.id}/{reaction.message.id}"
+
+    # Beschreibung für die Log-Nachricht
+    description = (
+        f"**Benutzer:** {user.mention}\n"
+        f"**Emoji:** {reaction.emoji}\n"
+        f"**Nachricht:** [Hier klicken]({message_url}) im Kanal {channel.mention}\n"
+        f"**Nachrichteninhalt:** {reaction.message.content or '*Kein Textinhalt*'}"
+    )
+
+    # Senden der Log-Nachricht
     await logger.send_embed_log(
         guild_id,
         title="➖ Reaktion entfernt",
-        description=f"{user.mention} hat die Reaktion {reaction.emoji} von einer Nachricht entfernt."
+        description=description
     )
+    print(f"✅ Reaktion {reaction.emoji} von {user} entfernt und protokolliert.")
+
 
 @bot.event
 async def on_guild_role_create(role: discord.Role):
@@ -1632,8 +1625,8 @@ async def on_guild_role_delete(role: discord.Role):
 @bot.event
 async def on_guild_role_update(before: discord.Role, after: discord.Role):
     """
-    Event: Eine Rolle wird auf dem Server bearbeitet (z.B. Name oder Berechtigungen geändert).
-    Protokolliert die Änderungen an Rollen und sendet eine Nachricht in den Log-Kanal.
+    Event: Änderungen an einer Rolle (z.B. Name, Berechtigungen, Farbe).
+    Protokolliert die Änderungen und sendet eine Log-Nachricht.
     """
     guild_id = after.guild.id
     changes = []
@@ -1651,6 +1644,7 @@ async def on_guild_role_update(before: discord.Role, after: discord.Role):
         changes.append(f"**Farbe:** {before.color} → {after.color}")
 
     if changes:
+        # Hole den letzten Audit-Log-Eintrag für Rollenänderungen
         async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_update):
             executor = entry.user
             description = "\n".join(changes)
@@ -1659,47 +1653,8 @@ async def on_guild_role_update(before: discord.Role, after: discord.Role):
                 title="✏️ Rolle bearbeitet",
                 description=f"{description}\n🔧 **Bearbeitet von:** {executor.mention}"
             )
+            print(f"✅ Änderungen an der Rolle {after.name} protokolliert.")
             break
-
-
-@bot.event
-async def on_guild_role_update(before: discord.Role, after: discord.Role):
-    """
-    Event: Änderungen an Rollen, wie Name oder Berechtigungen.
-    """
-    guild_id = after.guild.id
-    changes = []
-
-    # Prüfen, ob der Rollenname geändert wurde
-    if before.name != after.name:
-        changes.append(f"**Name:** {before.name} → {after.name}")
-
-    # Prüfen, ob Berechtigungen geändert wurden
-    if before.permissions != after.permissions:
-        changes.append("**Berechtigungen geändert**")
-
-    # Prüfen, ob die Farbe geändert wurde
-    if before.color != after.color:
-        changes.append(f"**Farbe:** {before.color} → {after.color}")
-
-    if changes:
-        # Hole Audit-Log-Eintrag für die Bearbeitung der Rolle
-        async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_update):
-            executor = entry.user
-            description = "\n".join(changes)
-            await logger.send_embed_log(guild_id, "✏️ Rolle bearbeitet", f"{description}\n🔧 Bearbeitet von: {executor.mention}")
-            break
-
-
-@bot.event
-async def on_reaction_remove(reaction: discord.Reaction, user: discord.User):
-    """
-    Event: Ein Benutzer entfernt eine Reaktion von einer Nachricht.
-    """
-    guild_id = reaction.message.guild.id
-    description = f"{user.mention} hat seine Reaktion {reaction.emoji} von der Nachricht entfernt."
-    await logger.send_embed_log(guild_id, "✏️ Reaktion entfernt", description)
-
 
 @bot.event
 async def on_guild_member_update(before: discord.Member, after: discord.Member):
@@ -1758,18 +1713,55 @@ async def on_guild_update(before: discord.Guild, after: discord.Guild):
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
     """
-    Protokolliert Änderungen bei Aktivitäten, Bildschirmübertragungen, Streaming und Nicknames.
+    Protokolliert Änderungen eines Mitglieds:
+    - Timeout gesetzt/entfernt
+    - Rollen hinzugefügt/entfernt
+    - Nickname, Aktivitäten, Avatar
     """
-    changes = []
     guild_id = after.guild.id
+    changes = []
+
+    # Timeout-Änderungen
+    if before.timed_out_until != after.timed_out_until:
+        if after.timed_out_until:  # Timeout gesetzt
+            changes.append(
+                f"⏱️ **Timeout gesetzt:** Bis <t:{int(after.timed_out_until.timestamp())}:F>"
+            )
+        else:  # Timeout entfernt
+            changes.append("⏱️ **Timeout entfernt**")
+
+    # Rollenänderungen
+    added_roles = [role for role in after.roles if role not in before.roles]
+    removed_roles = [role for role in before.roles if role not in after.roles]
+
+    try:
+        # Rollen hinzugefügt
+        for role in added_roles:
+            async for entry in after.guild.audit_logs(action=discord.AuditLogAction.member_role_update, limit=1):
+                if entry.target == after and role in entry.after.roles:
+                    executor = entry.user
+                    changes.append(f"➕ **Rolle hinzugefügt:** {role.mention} (von {executor.mention})")
+                    break
+
+        # Rollen entfernt
+        for role in removed_roles:
+            async for entry in after.guild.audit_logs(action=discord.AuditLogAction.member_role_update, limit=1):
+                if entry.target == after and role in entry.before.roles:
+                    executor = entry.user
+                    changes.append(f"➖ **Rolle entfernt:** {role.mention} (von {executor.mention})")
+                    break
+
+    except Exception as e:
+        print(f"⚠️ Fehler beim Verarbeiten der Rollenänderungen für {after}: {e}")
+        changes.append("⚠️ Fehler bei der Protokollierung von Rollenänderungen")
 
     # Nickname-Änderungen
     if before.nick != after.nick:
-        changes.append(f"📝 **Nickname:** {before.nick or 'Keiner'} → {after.nick or 'Keiner'}")
+        changes.append(f"📝 **Nickname geändert:** {before.nick or 'Keiner'} → {after.nick or 'Keiner'}")
 
     # Avatar-Änderungen
     if before.avatar != after.avatar:
-        changes.append(f"🖼️ **Avatar geändert**")
+        changes.append("🖼️ **Avatar geändert**")
 
     # Aktivitätsänderungen
     if before.activities != after.activities:
@@ -1781,9 +1773,14 @@ async def on_member_update(before: discord.Member, after: discord.Member):
         if removed_activities:
             changes.append(f"➖ **Beendete Aktivitäten:** {', '.join(removed_activities)}")
 
+    # Log-Nachricht senden, wenn Änderungen vorhanden
     if changes:
-        description = f"{after.mention}\n" + "\n".join(changes)
-        await logger.send_embed_log(guild_id, "🔄 Mitglied aktualisiert", description)
+        description = "\n".join(changes)
+        await logger.send_embed_log(
+            guild_id,
+            title=f"🔄 Änderungen an {after}",
+            description=f"{after.mention}\n{description}"
+        )
 
 
 
@@ -1834,25 +1831,6 @@ async def on_guild_stickers_update(guild: discord.Guild, before, after):
     """
     description = f"🎨 Vorher: {len(before)} Sticker\nNachher: {len(after)} Sticker"
     await logger.send_embed_log(guild.id, "🎨 Sticker-Änderungen", description)
-
-
-@bot.event
-async def on_guild_emojis_update(guild: discord.Guild, before, after):
-    """
-    Protokolliert Änderungen an Emojis in einer Guild.
-    """
-    added = [str(emoji) for emoji in after if emoji not in before]
-    removed = [str(emoji) for emoji in before if emoji not in after]
-    changes = []
-
-    if added:
-        changes.append(f"➕ Hinzugefügt: {', '.join(added)}")
-    if removed:
-        changes.append(f"➖ Entfernt: {', '.join(removed)}")
-
-    if changes:
-        description = "\n".join(changes)
-        await logger.send_embed_log(guild.id, "😃 Emoji-Änderungen", description)
 
 
 @bot.event
