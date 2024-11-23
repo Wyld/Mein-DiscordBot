@@ -1,7 +1,7 @@
 # main.py
 import asyncio
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 import audioop
 import discord
 from discord import app_commands
@@ -28,6 +28,7 @@ import json
 from datetime import datetime
 import firebase_admin
 from firebase_admin import credentials, firestore, db
+import datetime
 
 keep_alive()
 
@@ -1176,7 +1177,7 @@ async def on_message_delete(message: discord.Message):
         else:
             print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
 
-
+# Event: Nachricht bearbeitet
 @bot.event
 async def on_message_edit(before: discord.Message, after: discord.Message):
     """
@@ -1229,7 +1230,7 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
     else:
         print(f"⚠️ Kein Log-Kanal für Guild-ID {after.guild.id} gesetzt.")
 
-
+# Event: Timeout gesetzt oder entfernt
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
     """
@@ -1275,7 +1276,7 @@ async def on_member_update(before: discord.Member, after: discord.Member):
     else:
         print("Keine Änderungen am Timeout festgestellt.")
 
-
+# Event: Ban
 @bot.event
 async def on_member_ban(guild: discord.Guild, user: discord.User):
     """
@@ -1312,7 +1313,7 @@ async def on_member_ban(guild: discord.Guild, user: discord.User):
     except Exception as e:
         print(f"⚠️ Fehler beim Verarbeiten des Ban-Logs: {e}")
 
-
+# Event: Kick
 @bot.event
 async def on_member_kick(member: discord.Member):
     """
@@ -1349,6 +1350,7 @@ async def on_member_kick(member: discord.Member):
     except Exception as e:
         print(f"⚠️ Fehler beim Verarbeiten des Kick-Logs: {e}")
 
+# Event: Unban
 @bot.event
 async def on_member_unban(guild: discord.Guild, user: discord.User):
     """
@@ -1460,79 +1462,70 @@ async def on_member_remove(member: discord.Member):
 @bot.event
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
     """
-    Event: Änderungen im Sprachkanal eines Mitglieds.
-    Protokolliert, wenn ein Mitglied Sprachkanäle betritt, verlässt oder wechselt.
-    Auch Änderungen an Mute/Deaf-Status werden protokolliert.
+    Event: Änderungen im Sprachkanal eines Mitglieds, einschließlich Mute/Deafen durch andere und eigene Aktionen.
     """
-    print(f"Event ausgelöst: Sprachkanal-Update für {member}. Vorher: {before.channel}, Nachher: {after.channel}")
+    changes = []
+    guild_id = member.guild.id
 
-    # Prüfen, ob ein Log-Kanal für die Guild gesetzt ist
-    log_channel_id = log_channels.get(str(member.guild.id))
-    if not log_channel_id:
-        print(f"⚠️ Kein Log-Kanal für Guild-ID {member.guild.id} gesetzt.")
-        return
+    # Sprachkanal Betreten
+    if before.channel is None and after.channel is not None:
+        changes.append(f"🔊 **Beigetreten:** {after.channel.mention}")
 
-    # Kanalobjekt holen
-    log_channel = bot.get_channel(log_channel_id)
-    if not log_channel:
-        print(f"⚠️ Log-Kanal mit ID {log_channel_id} nicht gefunden.")
-        return
+    # Sprachkanal Verlassen
+    if before.channel is not None and after.channel is None:
+        changes.append(f"🔇 **Verlassen:** {before.channel.mention}")
 
-    try:
-        # Sprachkanal Betreten
-        if before.channel is None and after.channel is not None:
-            await log_channel.send(f"{member.mention} ist in den Sprachkanal {after.channel.mention} beigetreten.")
+    # Sprachkanal Wechsel
+    if before.channel and after.channel and before.channel != after.channel:
+        changes.append(f"🔄 **Gewechselt:** {before.channel.mention} → {after.channel.mention}")
 
-        # Sprachkanal Verlassen
-        elif before.channel is not None and after.channel is None:
-            await log_channel.send(f"{member.mention} hat den Sprachkanal {before.channel.mention} verlassen.")
+    # Bildschirmübertragung (self_video)
+    if before.self_video != after.self_video:
+        if after.self_video:
+            changes.append(f"📹 **Bildschirmübertragung gestartet in:** {after.channel.mention}")
+        else:
+            changes.append(f"📹 **Bildschirmübertragung beendet in:** {after.channel.mention}")
 
-        # Sprachkanal Wechsel
-        elif before.channel != after.channel:
-            await log_channel.send(
-                f"{member.mention} hat den Sprachkanal von {before.channel.mention} zu {after.channel.mention} gewechselt.")
+    # Streaming (self_stream)
+    if before.self_stream != after.self_stream:
+        if after.self_stream:
+            changes.append(f"🎥 **Streaming gestartet in:** {after.channel.mention}")
+        else:
+            changes.append(f"🎥 **Streaming beendet in:** {after.channel.mention}")
 
-        # Selbst-Mute Änderungen
-        if before.self_mute != after.self_mute:
-            if after.self_mute:
-                await log_channel.send(f"{member.mention} hat sich selbst stummgeschaltet in {after.channel.mention}.")
-            else:
-                await log_channel.send(f"{member.mention} hat sich selbst entmutet in {after.channel.mention}.")
+    # Selbst-Stummschalten (self_mute)
+    if before.self_mute != after.self_mute:
+        if after.self_mute:
+            changes.append(f"🔇 **Selbst stummgeschaltet in:** {after.channel.mention}")
+        else:
+            changes.append(f"🔊 **Selbst entstummt in:** {after.channel.mention}")
 
-        # Selbst-Deafen Änderungen
-        if before.self_deaf != after.self_deaf:
-            if after.self_deaf:
-                await log_channel.send(
-                    f"{member.mention} hat sich selbst entmutet (deafen) in {after.channel.mention}.")
-            else:
-                await log_channel.send(
-                    f"{member.mention} hat sich selbst entmutet (undeafen) in {after.channel.mention}.")
+    # Selbst-Deafen (self_deaf)
+    if before.self_deaf != after.self_deaf:
+        if after.self_deaf:
+            changes.append(f"🔇 **Selbst deafened in:** {after.channel.mention}")
+        else:
+            changes.append(f"🔊 **Selbst undeafened in:** {after.channel.mention}")
 
-        # Mute durch Moderatoren/Administratoren
-        if before.mute != after.mute:
-            executor = "ein Moderator" if not member.bot else "der Bot"
-            if after.mute:
-                await log_channel.send(
-                    f"{member.mention} wurde von {executor} stummgeschaltet in {after.channel.mention}.")
-            else:
-                await log_channel.send(f"{member.mention} wurde von {executor} entmutet in {after.channel.mention}.")
+    # Mute durch Moderatoren/Administratoren
+    if before.mute != after.mute:
+        if after.mute:
+            changes.append(f"🔇 **Stummgeschaltet durch einen Moderator oder Bot in:** {after.channel.mention}")
+        else:
+            changes.append(f"🔊 **Entstummt durch einen Moderator oder Bot in:** {after.channel.mention}")
 
-        # Deafen durch Moderatoren/Administratoren
-        if before.deaf != after.deaf:
-            executor = "ein Moderator" if not member.bot else "der Bot"
-            if after.deaf:
-                await log_channel.send(
-                    f"{member.mention} wurde von {executor} entmutet (deafen) in {after.channel.mention}.")
-            else:
-                await log_channel.send(
-                    f"{member.mention} wurde von {executor} entmutet (undeafen) in {after.channel.mention}.")
+    # Deafen durch Moderatoren/Administratoren
+    if before.deaf != after.deaf:
+        if after.deaf:
+            changes.append(f"🔇 **Deafened durch einen Moderator oder Bot in:** {after.channel.mention}")
+        else:
+            changes.append(f"🔊 **Undeafened durch einen Moderator oder Bot in:** {after.channel.mention}")
 
-        print(f"✅ Sprachkanaländerung für {member} protokolliert.")
+    # Protokollieren der Änderungen
+    if changes:
+        description = f"{member.mention}\n" + "\n".join(changes)
+        await send_embed_log(guild_id, "🔊 Sprachkanal-Update", description)
 
-    except Exception as e:
-        print(f"⚠️ Fehler beim Verarbeiten des Sprachkanal-Updates für {member}: {e}")
-        await log_channel.send(
-            f"⚠️ **Fehler:** Änderungen im Sprachkanal für {member.mention} konnten nicht protokolliert werden.")
 
 
 # Event: Rollenänderungen
@@ -1940,7 +1933,7 @@ async def on_reaction_remove(reaction: discord.Reaction, user: discord.User):
             # Log-Nachricht senden, wenn der Benutzer eine Reaktion entfernt
             await log_channel.send(f"{user.mention} hat seine Reaktion {reaction.emoji} von der Nachricht entfernt.")
 
-
+# Event: Nitro boost
 @bot.event
 async def on_guild_member_update(before: discord.Member, after: discord.Member):
     """
@@ -1976,7 +1969,7 @@ async def on_guild_member_update(before: discord.Member, after: discord.Member):
                                     f"❌ Boost wurde von {executor.mention} entfernt für {after.mention}.")
                             break
 
-
+# Servername
 @bot.event
 async def on_guild_update(before: discord.Guild, after: discord.Guild):
     """
@@ -1995,6 +1988,7 @@ async def on_guild_update(before: discord.Guild, after: discord.Guild):
                         await log_channel.send(f"Servername geändert: {before.name} → {after.name} durch {executor.mention}")
                         break
 
+# Servereinstellungen
 @bot.event
 async def on_guild_update(before: discord.Guild, after: discord.Guild):
     """
@@ -2026,6 +2020,147 @@ async def on_guild_update(before: discord.Guild, after: discord.Guild):
                 executor = entry.user
                 await log_channel.send(f"Änderung durchgeführt von **{executor.mention}** (Administrator/Bot).")
 
+# Zusätzliche
+@bot.event
+async def on_member_update(before: discord.Member, after: discord.Member):
+    """
+    Protokolliert Änderungen bei Aktivitäten, Bildschirmübertragungen, Streaming und Nicknames.
+    """
+    changes = []
+    guild_id = after.guild.id
+
+    # Nickname-Änderungen
+    if before.nick != after.nick:
+        changes.append(f"📝 **Nickname:** {before.nick or 'Keiner'} → {after.nick or 'Keiner'}")
+
+    # Avatar-Änderungen
+    if before.avatar != after.avatar:
+        changes.append(f"🖼️ **Avatar geändert**")
+
+    # Aktivitätsänderungen
+    if before.activities != after.activities:
+        added_activities = [str(a.name) for a in after.activities if a not in before.activities]
+        removed_activities = [str(a.name) for a in before.activities if a not in after.activities]
+
+        if added_activities:
+            changes.append(f"➕ **Neue Aktivitäten:** {', '.join(added_activities)}")
+        if removed_activities:
+            changes.append(f"➖ **Beendete Aktivitäten:** {', '.join(removed_activities)}")
+
+    if changes:
+        description = f"{after.mention}\n" + "\n".join(changes)
+        await send_embed_log(guild_id, "🔄 Mitglied aktualisiert", description)
+
+
+
+@bot.event
+async def on_invite_create(invite: discord.Invite):
+    """
+    Protokolliert die Erstellung eines Einladungslinks.
+    """
+    description = (
+        f"🔗 **Einladender:** {invite.inviter.mention}\n"
+        f"🌐 **Kanal:** {invite.channel.mention}\n"
+        f"📆 **Ablaufdatum:** {invite.expires_at or 'Nie'}"
+    )
+    await send_embed_log(invite.guild.id, "✉️ Einladungslink erstellt", description)
+
+
+@bot.event
+async def on_invite_delete(invite: discord.Invite):
+    """
+    Protokolliert das Löschen eines Einladungslinks.
+    """
+    description = f"🔗 **Kanal:** {invite.channel.mention if invite.channel else 'Unbekannt'}"
+    await send_embed_log(invite.guild.id, "❌ Einladungslink gelöscht", description)
+
+
+@bot.event
+async def on_webhooks_update(channel: discord.TextChannel):
+    """
+    Protokolliert Änderungen an Webhooks.
+    """
+    description = f"📌 **Kanal:** {channel.mention}"
+    await send_embed_log(channel.guild.id, "⚙️ Webhook aktualisiert", description)
+
+
+@bot.event
+async def on_guild_channel_pins_update(channel: discord.TextChannel, last_pin: Optional[datetime.datetime]):
+    """
+    Protokolliert Änderungen an gepinnten Nachrichten in einem Kanal.
+    """
+    description = f"📌 **Kanal:** {channel.mention}\n🕒 **Letzter Pin:** {last_pin or 'Keine Änderungen'}"
+    await send_embed_log(channel.guild.id, "📌 Pins geändert", description)
+
+
+@bot.event
+async def on_guild_stickers_update(guild: discord.Guild, before, after):
+    """
+    Protokolliert Änderungen an Stickern in einer Guild.
+    """
+    description = f"🎨 Vorher: {len(before)} Sticker\nNachher: {len(after)} Sticker"
+    await send_embed_log(guild.id, "🎨 Sticker-Änderungen", description)
+
+
+@bot.event
+async def on_guild_emojis_update(guild: discord.Guild, before, after):
+    """
+    Protokolliert Änderungen an Emojis in einer Guild.
+    """
+    added = [str(emoji) for emoji in after if emoji not in before]
+    removed = [str(emoji) for emoji in before if emoji not in after]
+    changes = []
+
+    if added:
+        changes.append(f"➕ Hinzugefügt: {', '.join(added)}")
+    if removed:
+        changes.append(f"➖ Entfernt: {', '.join(removed)}")
+
+    if changes:
+        description = "\n".join(changes)
+        await send_embed_log(guild.id, "😃 Emoji-Änderungen", description)
+
+
+@bot.event
+async def on_member_activity_update(before: discord.Member, after: discord.Member):
+    """
+    Protokolliert Änderungen an Aktivitäten eines Mitglieds.
+    """
+    if before.activity != after.activity:
+        description = (
+            f"🎮 **Mitglied:** {after.mention}\n"
+            f"Vorher: {before.activity or 'Keine'}\nNachher: {after.activity or 'Keine'}"
+        )
+        await send_embed_log(after.guild.id, "🎮 Aktivität geändert", description)
+
+
+@bot.event
+async def on_thread_update(before: discord.Thread, after: discord.Thread):
+    """
+    Protokolliert Änderungen an Threads.
+    """
+    description = (
+        f"🧵 **Thread:** {after.name}\n"
+        f"📌 **Kanal:** {after.parent.mention}\n"
+        f"🕒 **Letzter Beitrag:** {after.last_message_id}"
+    )
+    await send_embed_log(after.guild.id, "🧵 Thread geändert", description)
+
+
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    """
+    Protokolliert Interaktionen wie Slash-Commands oder Button-Klicks.
+    """
+    description = (
+        f"⚡ **Benutzer:** {interaction.user.mention}\n"
+        f"📝 **Typ:** {interaction.type.name}\n"
+        f"🖱️ **Daten:** {interaction.data}"
+    )
+    await send_embed_log(interaction.guild.id, "🔘 Interaktion ausgelöst", description)
+
+
+
 # Event: Event Handler
 @bot.event
 async def on_error(event, *args, **kwargs):
@@ -2041,6 +2176,7 @@ async def on_error(event, *args, **kwargs):
             )
     # Fehler auch in der Konsole ausgeben
     print(f"Fehler im Event {event}: {traceback.format_exc()}")
+
 
 # /lockdown Command (nur für Administratoren)
 @bot.tree.command(name="lockdown")
