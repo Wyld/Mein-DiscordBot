@@ -26,23 +26,11 @@ from flask import Flask
 import threading
 import json
 from datetime import datetime
-import firebase_admin
-from firebase_admin import credentials, firestore, db
 import datetime
 
 
 keep_alive()
 
-# Initialisiere Firebase
-try:
-    # Lade das Firebase-Zertifikat
-    cred = credentials.Certificate('firebase_credentials.json')
-    firebase_admin.initialize_app(cred)
-    db = firestore.client()
-    print("Firebase erfolgreich initialisiert.")
-except Exception as e:
-    print(f"Fehler bei der Firebase-Initialisierung: {e}")
-    db = None
 
 
 # Lade Umgebungsvariablen aus .env-Datei
@@ -67,7 +55,9 @@ intents.voice_states = True  # Um Sprachstatus-Updates zu empfangen
 intents.dm_messages = True
 
 # Bot-Instanz erstellen
-bot = commands.Bot(command_prefix='/', intents=intents)
+bot = commands.Bot(command_prefix='/', intents=intents
+                   )
+
 
 # Strukturen für Bankkonten, Lagerhäuser und Befehlsberechtigungen
 bank_accounts: Dict[str, int] = {}
@@ -1188,7 +1178,6 @@ async def on_message_delete(message: discord.Message):
         fields=fields,
         footer="Nachricht gelöscht"
     )
-
 
 
 @bot.event
