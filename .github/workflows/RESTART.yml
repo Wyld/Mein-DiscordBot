@@ -1,0 +1,77 @@
+name: Restart Discord Bot
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Alle 6 Stunden
+  workflow_dispatch:  # Ermöglicht manuellen Start
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Code aus dem Repository auschecken
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 2. Python einrichten
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      # 3. Abhängigkeiten installieren
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 4. `firebase_credentials.json` Datei bereitstellen
+      - name: Set up Firebase Credentials
+        env:
+          FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
+        run: |
+          echo "${FIREBASE_CREDENTIALS}" > firebase_credentials.json
+          echo "Firebase-Zertifikatsdatei erfolgreich eingerichtet."
+
+      # 5. `log_channels.json` Datei aus dem GitHub Repository herunterladen
+      - name: Load log_channels.json from GitHub repository
+        run: |
+          curl -H "Authorization: token ${{ secrets.LOG_TOKEN }}" \
+               -L https://raw.githubusercontent.com/Wyld/Mein-DiscordBot/main/log_channels.json \
+               -o log_channels.json
+          echo "Verifiziere heruntergeladene Datei..."
+          python -c "import json; json.load(open('log_channels.json'))"
+
+      # 6. `warehouses.json` Datei aus dem GitHub Repository herunterladen
+      - name: Load warehouses.json from GitHub repository
+        run: |
+          curl -H "Authorization: token ${{ secrets.LOG_TOKEN }}" \
+               -L https://raw.githubusercontent.com/Wyld/Mein-DiscordBot/main/warehouses.json \
+               -o warehouses.json || echo "{}" > warehouses.json
+          echo "Verifiziere heruntergeladene Datei..."
+          python -c "import json; json.load(open('warehouses.json'))"
+
+      # 7. Discord Bot ausführen
+      - name: Run Discord Bot
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+        run: |
+          nohup python main.py &
+
+      # 8. Änderungen an `log_channels.json` und `warehouses.json` speichern und in das GitHub-Repository pushen
+      - name: Save updated JSON files to GitHub repository
+        run: |
+          # Git konfigurieren
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          # Änderungen prüfen und pushen
+          git add log_channels.json warehouses.json || echo "Nichts zum Commit verfügbar."
+          git commit -m "Update JSON files" || echo "Keine Änderungen zum Commit."
+          git push https://x-access-token:${{ secrets.LOG_TOKEN }}@github.com/Wyld/Mein-DiscordBot.git HEAD:main || echo "Push fehlgeschlagen"
+        continue-on-error: true  # Falls keine Änderungen vorgenommen wurden, wird dieser Schritt übersprungen
+
+      # 9. Workflow aktiv halten
+      - name: Keep Runner Alive
+        run: sleep 99999999
